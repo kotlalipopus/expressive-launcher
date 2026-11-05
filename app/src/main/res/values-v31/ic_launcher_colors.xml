@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: Monet / Material You dynamic colors from the user's wallpaper -->
+<resources>
+    <color name="ic_launcher_background">@android:color/system_accent1_700</color>
+    <color name="ic_launcher_face">@android:color/system_accent1_200</color>
+    <color name="ic_launcher_ink">@android:color/system_accent1_900</color>
+</resources>
