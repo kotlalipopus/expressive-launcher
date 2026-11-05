@@ -19,6 +19,8 @@ android {
 
     buildTypes {
         release {
+            // Ревизия git и путь к проекту не попадают в APK
+            vcsInfo.include = false
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -27,6 +29,12 @@ android {
             )
             // Подпись отладочным ключом: оптимизированную сборку можно поставить поверх отладочной, не теряя раскладку
             signingConfig = signingConfigs.getByName("debug")
+        }
+        // Отладочная сборка ставится рядом с обычной как отдельное приложение (как у Expressive Keyboard)
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            isDebuggable = true
         }
     }
     compileOptions {

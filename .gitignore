@@ -22,3 +22,7 @@ build/
 *.aab
 *.jks
 *.keystore
+
+# Заметки для Claude Code — локальные, в репозиторий не публикуются
+CLAUDE.md
+.claude/

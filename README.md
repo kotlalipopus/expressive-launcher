@@ -65,8 +65,8 @@ cd expressive-launcher
 ./gradlew assembleRelease
 ```
 
-The APK will be in `app/build/outputs/apk/release/`. The release build is signed with the debug key,
-so it installs over a debug build without losing your layout.
+The APK will be in `app/build/outputs/apk/release/`. A debug build (`./gradlew assembleDebug`)
+installs next to it as a separate app, `com.example.expressivelauncher.debug`.
 
 ## License
 
