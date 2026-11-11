@@ -40,6 +40,10 @@ Requires Android 8.1 or newer. Liquid Glass refraction needs Android 13+.
 2. Open the app and follow the first-run setup.
 3. Choose Expressive Launcher as your default home app when asked (or in **Settings → Apps → Default apps → Home app**).
 
+If Android says "App not installed" when updating, uninstall the old copy first: a build signed with a different
+key (for example, an old test build from another computer) cannot be installed as an update, and `versionCode`
+must be newer than the installed one.
+
 ## Permissions
 
 | Permission | Why |
@@ -47,6 +51,7 @@ Requires Android 8.1 or newer. Liquid Glass refraction needs Android 13+.
 | Query all packages | Show every installed app in the drawer and on the home screen |
 | All files access | Read the system wallpaper image so the glass can show it (optional) |
 | Set wallpaper | "Also set as system wallpaper" button in the wallpaper menu |
+| Set alarm | Tapping the clock opens the alarm list; required by some firmware (HyperOS) |
 | Notification access | Unread badges on icons (optional, granted in system settings) |
 | Accessibility service | Gestures that lock the screen or open notifications (optional, granted in system settings) |
 | Expand status bar | Swipe-down gesture opens notifications |

@@ -2,6 +2,7 @@
 
 package com.example.expressivelauncher.ui.home
 
+import com.example.expressivelauncher.ui.components.accentGlow
 import com.example.expressivelauncher.data.displayLabel
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -91,7 +92,11 @@ fun AnimatedVisibilityScope.FolderOverlay(
         Box(
             Modifier.fillMaxSize().animateEnterExit(
                 enter = scaleIn(motion.defaultSpatialSpec(), initialScale = 0.3f, transformOrigin = origin) + fadeIn(motion.fastEffectsSpec()),
-                exit = scaleOut(motion.fastSpatialSpec(), targetScale = 0.3f, transformOrigin = origin) + fadeOut(motion.fastEffectsSpec()),
+                // Закрытие — с ускорением, без пружины: папка «втягивается» в значок и гаснет у самого значка
+                exit = scaleOut(
+                    androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)),
+                    targetScale = 0.25f, transformOrigin = origin,
+                ) + fadeOut(androidx.compose.animation.core.tween(150, delayMillis = 70)),
             ),
             contentAlignment = Alignment.Center,
         ) {
@@ -103,6 +108,7 @@ fun AnimatedVisibilityScope.FolderOverlay(
                 // Стол под папкой уже размыт одним слоем: сквозь стекло видно его, обои не подкладываем
                 overBlur = blur,
                 modifier = Modifier.padding(20.dp).widthIn(max = 420.dp).fillMaxWidth()
+                    .accentGlow(androidx.compose.foundation.shape.RoundedCornerShape(44.dp))
                     .clickable(interactionSource = null, indication = null) { },
             ) {
                 Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {

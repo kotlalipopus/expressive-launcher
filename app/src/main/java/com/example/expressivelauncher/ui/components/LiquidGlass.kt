@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import com.example.expressivelauncher.ui.LocalSettings
 import com.example.expressivelauncher.ui.theme.LocalThemeSpec
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.max
@@ -642,18 +643,25 @@ fun ThemedSurface(
     shadow: Boolean = true,
     /** Матовое стекло (меню, плитки, окна с текстом); прозрачное — у строки поиска в доке. */
     frosted: Boolean = true,
+    /** Expressive: панель матовая — на размытых обоях, а не просто полупрозрачная. Нужно размытие в настройках. */
+    blurPanel: Boolean = false,
     onClick: (() -> Unit)? = null,
     interactionSource: androidx.compose.foundation.interaction.MutableInteractionSource? = null,
     content: @Composable () -> Unit,
 ) {
     val spec = LocalThemeSpec.current
-    if (spec.glass) {
+    val panelBlur = blurPanel && spec.accentChrome && glassEnabled()
+    if (spec.glass || panelBlur) {
         val click = if (onClick != null) Modifier.clickable(
             interactionSource = interactionSource,
             indication = androidx.compose.material3.ripple(),
             onClick = onClick,
         ) else Modifier
-        LiquidSurface(shape, if (onClick != null) modifier.liquidPress() else modifier, color = color, overBlur = overBlur, shadow = shadow, contentColor = contentColor, frosted = frosted) {
+        LiquidSurface(
+            shape, if (onClick != null && spec.glass) modifier.liquidPress() else modifier,
+            color = color, alpha = 0.86f, overBlur = overBlur, shadow = shadow && (spec.glass || spec.shadows),
+            contentColor = contentColor, frosted = frosted && spec.glass,
+        ) {
             Box(Modifier.clip(shape).then(click), propagateMinConstraints = true) { content() }
         }
         return
@@ -682,6 +690,9 @@ fun Modifier.liquidPress(enabled: Boolean = true): Modifier {
     if (!enabled) return this
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val state = remember { LiquidPressState() }
+    // Позиция пальца пишется в состояние, а одна корутина на жест переносит её в аниматаблы.
+    // Раньше на каждое событие движения запускались четыре корутины — по одной на snapTo.
+    val follow = remember { mutableStateOf(Offset.Zero) }
     val density = androidx.compose.ui.platform.LocalDensity.current
     val maxShift = with(density) { 14.dp.toPx() }
     val stretchRange = with(density) { 90.dp.toPx() }
@@ -689,18 +700,27 @@ fun Modifier.liquidPress(enabled: Boolean = true): Modifier {
         .pointerInput(Unit) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                // Резиновое сопротивление: чем дальше палец, тем слабее тянется
+                fun rubber(v: Float) = maxShift * kotlin.math.tanh(v / (maxShift * 4f))
+                follow.value = Offset.Zero
+                val followJob = scope.launch {
+                    androidx.compose.runtime.snapshotFlow { follow.value }.collect { d ->
+                        state.dx.snapTo(rubber(d.x))
+                        state.dy.snapTo(rubber(d.y))
+                        state.sx.snapTo(kotlin.math.tanh(kotlin.math.abs(d.x) / stretchRange))
+                        state.sy.snapTo(kotlin.math.tanh(kotlin.math.abs(d.y) / stretchRange))
+                    }
+                }
                 scope.launch { state.press.animateTo(1f, androidx.compose.animation.core.spring(0.55f, 600f)) }
-                while (true) {
-                    val ev = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                    val c = ev.changes.firstOrNull { it.id == down.id } ?: break
-                    if (!c.pressed) break
-                    val d = c.position - down.position
-                    // Резиновое сопротивление: чем дальше палец, тем слабее тянется
-                    fun rubber(v: Float) = maxShift * kotlin.math.tanh(v / (maxShift * 4f))
-                    scope.launch { state.dx.snapTo(rubber(d.x)) }
-                    scope.launch { state.dy.snapTo(rubber(d.y)) }
-                    scope.launch { state.sx.snapTo(kotlin.math.tanh(kotlin.math.abs(d.x) / stretchRange)) }
-                    scope.launch { state.sy.snapTo(kotlin.math.tanh(kotlin.math.abs(d.y) / stretchRange)) }
+                try {
+                    while (true) {
+                        val ev = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                        val c = ev.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!c.pressed) break
+                        follow.value = c.position - down.position
+                    }
+                } finally {
+                    followJob.cancel()
                 }
                 val back = androidx.compose.animation.core.spring<Float>(0.42f, 380f)
                 scope.launch { state.press.animateTo(0f, back) }

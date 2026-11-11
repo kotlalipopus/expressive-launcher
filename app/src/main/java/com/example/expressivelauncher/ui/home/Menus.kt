@@ -2,6 +2,7 @@
 
 package com.example.expressivelauncher.ui.home
 
+import com.example.expressivelauncher.ui.theme.accentColors
 import android.content.pm.ShortcutInfo
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -99,6 +100,7 @@ import com.example.expressivelauncher.ui.components.HapticGroup
 import com.example.expressivelauncher.ui.components.HapticKind
 import com.example.expressivelauncher.ui.components.GlassPanel
 import com.example.expressivelauncher.ui.components.ThemedSurface
+import com.example.expressivelauncher.ui.components.accentGlow
 import kotlin.math.roundToInt
 
 /** Размещает содержимое рядом с [anchor] (координаты окна): под ним, а если не помещается — над ним. */
@@ -131,8 +133,10 @@ fun <T : Any> AnimatedAnchoredMenu(target: T?, anchor: (T) -> Rect, screen: Size
     val motion = MaterialTheme.motionScheme
     AnimatedVisibility(
         visible = target != null,
-        enter = scaleIn(motion.defaultSpatialSpec(), initialScale = 0.5f, transformOrigin = origin) + fadeIn(motion.fastEffectsSpec()),
-        exit = scaleOut(motion.fastSpatialSpec(), targetScale = 0.7f, transformOrigin = origin) + fadeOut(motion.fastEffectsSpec()),
+        // Раскрывается из значка с лёгкой пружиной; закрывается коротко и без отскока — к нему уже не вернутся
+        enter = scaleIn(motion.defaultSpatialSpec(), initialScale = 0.6f, transformOrigin = origin) + fadeIn(motion.fastEffectsSpec()),
+        exit = scaleOut(androidx.compose.animation.core.tween(160, easing = androidx.compose.animation.core.FastOutLinearInEasing), targetScale = 0.86f, transformOrigin = origin) +
+            fadeOut(androidx.compose.animation.core.tween(140)),
     ) {
         AnchoredBox(a) { content(shown) }
     }
@@ -165,7 +169,8 @@ private fun ExpressiveMenu(groups: List<List<MenuEntry>>) {
                 color = cs.surfaceContainerLow,
                 contentColor = cs.onSurface,
                 shadowElevation = 3.dp,
-                modifier = Modifier.fillMaxWidth(),
+                blurPanel = false,
+                modifier = Modifier.fillMaxWidth().accentGlow(menuGroupShape(gi, filled.size)),
             ) {
                 Column(Modifier.padding(vertical = 4.dp, horizontal = 4.dp)) {
                     entries.forEachIndexed { i, e ->
@@ -330,27 +335,33 @@ const val MENU_GUARD_MS = 350L
 @Composable
 fun AnimatedVisibilityScope.HomeMenu(onDismiss: () -> Unit, onWidgets: () -> Unit, onWallpaper: () -> Unit, onSettings: () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val spec = com.example.expressivelauncher.ui.theme.LocalThemeSpec.current
     // Меню появляется, пока палец ещё на экране: случайное касание ладонью или вторым пальцем
     // в первые мгновения не должно его закрывать
     val openedAt = remember { android.os.SystemClock.uptimeMillis() }
     Box(
-        Modifier.fillMaxSize().background(cs.scrim.copy(alpha = 0.32f)).clickable(interactionSource = null, indication = null) {
+        Modifier.fillMaxSize().background(cs.scrim.copy(alpha = if (spec.accentChrome) 0.45f else 0.32f)).clickable(interactionSource = null, indication = null) {
             if (android.os.SystemClock.uptimeMillis() - openedAt > MENU_GUARD_MS) onDismiss()
         },
     )
+    val slide = Modifier.animateEnterExit(
+        enter = slideInVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { it },
+        exit = slideOutVertically(MaterialTheme.motionScheme.fastSpatialSpec()) { it },
+    )
     Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars), contentAlignment = Alignment.BottomCenter) {
+        if (spec.accentChrome) {
+            AccentHomeMenu(onWidgets, onWallpaper, onSettings, Modifier.padding(horizontal = 12.dp, vertical = 4.dp).widthIn(max = 480.dp).fillMaxWidth().then(slide))
+            return@Box
+        }
         ThemedSurface(
             shape = MaterialTheme.shapes.extraLargeIncreased,
             color = cs.surfaceContainer,
             contentColor = cs.onSurface,
             shadowElevation = 3.dp,
-            modifier = Modifier.padding(16.dp).fillMaxWidth().animateEnterExit(
-                enter = slideInVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { it },
-                exit = slideOutVertically(MaterialTheme.motionScheme.fastSpatialSpec()) { it },
-            ),
+            modifier = Modifier.padding(16.dp).fillMaxWidth().then(slide),
         ) {
-            // Liquid Glass: три одинаковые стеклянные плитки, как в iOS; в Expressive главная — крупнее и залита цветом
-            val glassTheme = com.example.expressivelauncher.ui.theme.LocalThemeSpec.current.glass
+            // Liquid Glass: три одинаковые стеклянные плитки, как в iOS; в Lite главная — крупнее и залита цветом
+            val glassTheme = spec.glass
             Row(Modifier.padding(12.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 HomeMenuTile(
                     Icons.Rounded.Widgets, stringResource(R.string.home_widgets), cs.primary, cs.onPrimary,
@@ -368,6 +379,69 @@ fun AnimatedVisibilityScope.HomeMenu(onDismiss: () -> Unit, onWidgets: () -> Uni
                     modifier = Modifier.weight(1f).fillMaxHeight().staggerIn(2),
                 )
             }
+        }
+    }
+}
+
+/**
+ * Меню стола в Expressive: насыщенная панель тёмного тона акцента со свечением, внутри — три кнопки во всю
+ * ширину, собранные в группу (снаружи крупные углы 28 dp, на стыках 8 dp, как у сгруппированных кнопок M3
+ * Expressive). Кнопка под пальцем скругляется сильнее — морфинг формы. Размеры — как у кнопки Medium/Large:
+ * высота 72 dp, значок 28 dp, подпись titleLarge.
+ */
+@Composable
+private fun AccentHomeMenu(onWidgets: () -> Unit, onWallpaper: () -> Unit, onSettings: () -> Unit, modifier: Modifier) {
+    val ac = accentColors()
+    val shape = RoundedCornerShape(36.dp)
+    val s = LocalSettings.current
+    val blurUnder = s.blurEverywhere && s.blurBackground && s.blurStrength > 0f && LocalFx.current.blur && android.os.Build.VERSION.SDK_INT >= 31
+    Box(
+        modifier
+            .accentGlow(shape)
+            .clip(shape)
+            // Полупрозрачная — только поверх размытия («Размытие везде»), иначе сквозь неё читался бы док
+            .background(ac.panel.copy(alpha = if (blurUnder) 0.78f else 0.97f))
+            .padding(8.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val items = listOf(
+                Triple(Icons.Rounded.Widgets, R.string.home_widgets, onWidgets),
+                Triple(Icons.Rounded.Wallpaper, R.string.home_wallpaper, onWallpaper),
+                Triple(Icons.Rounded.Settings, R.string.home_settings, onSettings),
+            )
+            items.forEachIndexed { i, (icon, label, click) ->
+                AccentMenuButton(icon, stringResource(label), i, items.size, click, Modifier.staggerIn(i))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccentMenuButton(icon: ImageVector, text: String, index: Int, count: Int, onClick: () -> Unit, modifier: Modifier) {
+    val ac = accentColors()
+    val source = remember { MutableInteractionSource() }
+    val isPressed by source.collectIsPressedAsState()
+    val haptics = LocalHaptics.current
+    val spatial = MaterialTheme.motionScheme.fastSpatialSpec<androidx.compose.ui.unit.Dp>()
+    val outer = 28.dp; val inner = 8.dp; val pressedCorner = 36.dp
+    val top by animateDpAsState(if (isPressed) pressedCorner else if (index == 0) outer else inner, spatial, label = "top")
+    val bottom by animateDpAsState(if (isPressed) pressedCorner else if (index == count - 1) outer else inner, spatial, label = "bottom")
+    Surface(
+        onClick = { haptics.play(HapticKind.CLICK, HapticGroup.TOUCH); onClick() },
+        shape = RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom),
+        color = ac.field,
+        contentColor = ac.onField,
+        interactionSource = source,
+        modifier = modifier.fillMaxWidth().height(72.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 24.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, null, Modifier.size(28.dp))
+            Spacer(Modifier.width(12.dp))
+            Text(text, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

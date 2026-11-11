@@ -59,6 +59,7 @@ import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Brightness6
+import androidx.compose.material.icons.rounded.Brush
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ColorLens
@@ -718,12 +719,34 @@ private fun IconsPage(vm: LauncherViewModel, actions: HomeActions, openThemes: (
             Icons.Rounded.FormatLineSpacing, stringResource(R.string.label_lines), null,
             listOf(1 to stringResource(R.string.lines_one), 2 to stringResource(R.string.lines_two)), s.labelLines,
         ) { v -> upd { it.copy(labelLines = v) } }
+        // Одна настройка: свой тематический значок приложения, у остальных — перекраска в те же цвета
         ToggleItem(
-            Icons.Rounded.InvertColors, stringResource(R.string.themed_icons),
-            stringResource(if (Build.VERSION.SDK_INT >= 33) R.string.themed_icons_hint else R.string.themed_icons_unsupported),
-            s.themedIcons, enabled = Build.VERSION.SDK_INT >= 33,
+            Icons.Rounded.InvertColors, stringResource(R.string.themed_icons), stringResource(R.string.themed_icons_hint), s.themedIcons,
         ) { v -> upd { it.copy(themedIcons = v) } }
-        ToggleItem(Icons.Rounded.ColorLens, stringResource(R.string.duotone_icons), stringResource(R.string.duotone_icons_hint), s.duotoneIcons) { v -> upd { it.copy(duotoneIcons = v) } }
+        if (s.themedIcons && com.example.expressivelauncher.ui.theme.LauncherThemes.of(s.style).accentChrome) {
+            ChoiceItem(
+                Icons.Rounded.ColorLens, stringResource(R.string.themed_icon_colors), null,
+                listOf(
+                    0 to stringResource(R.string.themed_colors_palette),
+                    1 to stringResource(R.string.themed_colors_dock),
+                    2 to stringResource(R.string.themed_colors_search),
+                    3 to stringResource(R.string.themed_colors_secondary),
+                ),
+                s.themedIconColors,
+            ) { v -> upd { it.copy(themedIconColors = v) } }
+            // Рисунок настраивается отдельно от фона: можно оставить «Авто» (контрастный) или выбрать свой
+            ChoiceItem(
+                Icons.Rounded.Brush, stringResource(R.string.themed_icon_glyph), null,
+                listOf(
+                    -1 to stringResource(R.string.themed_colors_auto),
+                    0 to stringResource(R.string.themed_colors_palette),
+                    1 to stringResource(R.string.themed_colors_dock),
+                    2 to stringResource(R.string.themed_colors_search),
+                    3 to stringResource(R.string.themed_colors_secondary),
+                ),
+                s.themedIconFgColors,
+            ) { v -> upd { it.copy(themedIconFgColors = v) } }
+        }
         ToggleItem(Icons.Rounded.TableRows, stringResource(R.string.home_labels), null, s.showHomeLabels) { v -> upd { it.copy(showHomeLabels = v) } }
         ToggleItem(Icons.AutoMirrored.Rounded.ViewList, stringResource(R.string.drawer_labels), null, s.drawerLabels) { v -> upd { it.copy(drawerLabels = v) } }
         ToggleItem(Icons.Rounded.Notifications, stringResource(R.string.badges), stringResource(R.string.badges_hint), s.showBadges) { v ->
@@ -814,7 +837,7 @@ private fun HomeScreenPage(vm: LauncherViewModel, onSearchBar: () -> Unit) {
         SliderItem(Icons.Rounded.GridView, stringResource(R.string.dock_count), s.dockCount.toFloat(), 3f..6f, { it.roundToInt().toString() }, steps = 2) { v -> upd { it.copy(dockCount = v.roundToInt()) } }
         ToggleItem(Icons.Rounded.Palette, stringResource(R.string.dock_background), null, s.dockBackground) { v -> upd { it.copy(dockBackground = v) } }
         SliderItem(Icons.Rounded.Opacity, stringResource(R.string.dock_opacity), s.dockOpacity, 0.2f..1f, { "${(it * 100).roundToInt()}%" }) { v -> upd { it.copy(dockOpacity = v) } }
-        SliderItem(Icons.Rounded.Height, stringResource(R.string.dock_height), s.dockHeight.toFloat(), 64f..120f, { "${it.roundToInt()} dp" }) { v -> upd { it.copy(dockHeight = v.roundToInt()) } }
+        SliderItem(Icons.Rounded.Height, stringResource(R.string.dock_height), s.dockHeight.toFloat(), 40f..120f, { "${it.roundToInt()} dp" }) { v -> upd { it.copy(dockHeight = v.roundToInt()) } }
         SliderItem(Icons.Rounded.RoundedCorner, stringResource(R.string.dock_radius), s.dockRadius.toFloat(), 0f..44f, { "${it.roundToInt()} dp" }) { v -> upd { it.copy(dockRadius = v.roundToInt()) } }
     }
     SettingsSection(stringResource(R.string.set_home)) {

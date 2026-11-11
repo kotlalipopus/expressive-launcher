@@ -89,6 +89,18 @@ object CustomWallpaper {
         return ok
     }
 
+    /**
+     * Те же обои ставятся и системными (только рабочий стол): иначе при закрытии приложения система рисует за
+     * сжимающимся окном свои обои, и они мелькают. Экран блокировки не меняется.
+     */
+    suspend fun applyToSystem(context: Context): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            file(context).inputStream().use {
+                android.app.WallpaperManager.getInstance(context).setStream(it, null, true, android.app.WallpaperManager.FLAG_SYSTEM)
+            }
+        }.isSuccess
+    }
+
     private fun changed() {
         version++
         loadedKey = null

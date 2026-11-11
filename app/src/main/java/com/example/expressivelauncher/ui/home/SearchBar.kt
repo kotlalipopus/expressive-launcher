@@ -1,5 +1,6 @@
 package com.example.expressivelauncher.ui.home
 
+import com.example.expressivelauncher.ui.theme.accentColors
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -39,6 +40,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.boundsInRoot
@@ -164,7 +167,12 @@ fun PixelSearchBar(
     // Внутри дока строка — концентрична ему: радиус дока минус отступ 8 dp, иначе углы строки и дока
     // расходятся и строка выглядит кривой. Без подложки дока — обычная «таблетка»
     val insideDock = s.showDock && s.dockBackground
-    val shape = if (insideDock) androidx.compose.foundation.shape.RoundedCornerShape((s.dockRadius - 8).coerceAtLeast(12).dp) else CircleShape
+    val shape = if (insideDock && !com.example.expressivelauncher.ui.theme.LocalThemeSpec.current.accentChrome) androidx.compose.foundation.shape.RoundedCornerShape((s.dockRadius - 8).coerceAtLeast(12).dp) else CircleShape
+    // Expressive: строка — светлый фиксированный тон акцента, текст и группа кнопок — тёмный тон
+    val accent = com.example.expressivelauncher.ui.theme.LocalThemeSpec.current.accentChrome
+    val ac = accentColors()
+    val container = if (accent) ac.field else cs.surfaceContainerHigh
+    val onContainer = if (accent) ac.onField else cs.onSurface
     // В Liquid Glass — стеклянная «таблетка» внутри стеклянного дока: обои второй раз не подкладываются,
     // тени нет (её обрезал край дока, и низ строки выглядел неровным)
     com.example.expressivelauncher.ui.components.ThemedSurface(
@@ -173,8 +181,8 @@ fun PixelSearchBar(
             if (!s.searchGoogle || !SearchLaunch.engine(context, engine)) onAppsSearch()
         },
         shape = shape,
-        color = cs.surfaceContainerHigh,
-        contentColor = cs.onSurface,
+        color = container,
+        contentColor = onContainer,
         interactionSource = source,
         overBlur = insideDock,
         shadow = false,
@@ -186,13 +194,15 @@ fun PixelSearchBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            if (s.searchGoogle) EngineMark(engine, Modifier.size(26.dp))
+            // Expressive: «G» и значки кнопок — в тонах палитры, как тематическая строка поиска Pixel
+            val themed = if (accent) themedGlyphs(container) else null
+            if (s.searchGoogle) EngineMark(engine, Modifier.size(26.dp), themed)
             else Icon(Icons.Rounded.Search, null, Modifier.size(24.dp))
             Text(
                 if (!s.searchGoogle) stringResource(R.string.search_hint)
                 else if (engine.name == "Google") stringResource(R.string.sb_hint_google)
                 else stringResource(R.string.sb_hint_engine, engine.name),
-                color = cs.onSurfaceVariant,
+                color = if (accent) onContainer else cs.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyLarge,
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -206,7 +216,7 @@ fun PixelSearchBar(
                     ToolButton(onClick = {
                         haptics.play(HapticKind.CLICK, HapticGroup.TOUCH)
                         SearchLaunch.run(context, tool, onApps)
-                    }) { ToolGlyph(tool) }
+                    }) { ToolGlyph(tool, themed = themed) }
                 } else if (app != null) {
                     val bounds = remember { arrayOf<Rect?>(null) }
                     ToolButton(
@@ -229,19 +239,21 @@ private fun ToolButton(onClick: () -> Unit, modifier: Modifier = Modifier, conte
 
 /** Значок встроенной кнопки; в настройках рисуется тем же кодом. */
 @Composable
-fun ToolGlyph(tool: SearchTool, size: Dp = 24.dp) {
+fun ToolGlyph(tool: SearchTool, size: Dp = 24.dp, tint: Color? = null, themed: ThemedGlyphs? = null) {
     val cs = MaterialTheme.colorScheme
+    val mono = tint ?: themed?.deep ?: cs.onSurfaceVariant
+    val accent = tint ?: themed?.main ?: cs.primary
     when (tool) {
-        SearchTool.VOICE -> Icon(Icons.Rounded.Mic, stringResource(tool.title), Modifier.size(size), tint = cs.onSurfaceVariant)
-        SearchTool.LENS -> LensMark(Modifier.size(size))
-        SearchTool.GEMINI -> Icon(Icons.Rounded.AutoAwesome, stringResource(tool.title), Modifier.size(size), tint = cs.primary)
-        SearchTool.APPS -> Icon(Icons.Rounded.Apps, stringResource(tool.title), Modifier.size(size), tint = cs.onSurfaceVariant)
+        SearchTool.VOICE -> if (themed != null) MicMark(Modifier.size(size), themed) else Icon(Icons.Rounded.Mic, stringResource(tool.title), Modifier.size(size), tint = mono)
+        SearchTool.LENS -> if (themed != null) ThemedLensMark(Modifier.size(size), themed) else LensMark(Modifier.size(size), tint)
+        SearchTool.GEMINI -> Icon(Icons.Rounded.AutoAwesome, stringResource(tool.title), Modifier.size(size), tint = accent)
+        SearchTool.APPS -> Icon(Icons.Rounded.Apps, stringResource(tool.title), Modifier.size(size), tint = mono)
         SearchTool.AI_MODE -> Box(
             Modifier.clip(CircleShape).padding(horizontal = 2.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                "AI", color = cs.primary, fontWeight = FontWeight.Bold,
+                "AI", color = accent, fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.labelLarge,
             )
         }
@@ -250,16 +262,85 @@ fun ToolGlyph(tool: SearchTool, size: Dp = 24.dp) {
 
 /** Значок поисковика: у Google — многоцветная «G», у остальных — буква в круге фирменного цвета. */
 @Composable
-fun EngineMark(engine: com.example.expressivelauncher.data.SearchEngine, modifier: Modifier) {
-    if (engine.name == "Google") { GoogleMark(modifier); return }
-    Box(modifier.clip(CircleShape).background(Color(engine.color)), contentAlignment = Alignment.Center) {
-        Text(engine.mark, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+fun EngineMark(engine: com.example.expressivelauncher.data.SearchEngine, modifier: Modifier, themed: ThemedGlyphs? = null) {
+    if (engine.name == "Google") { GoogleMark(modifier, themed); return }
+    Box(modifier.clip(CircleShape).background(themed?.deep ?: Color(engine.color)), contentAlignment = Alignment.Center) {
+        Text(engine.mark, color = themed?.light ?: Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+/**
+ * Тона значков строки поиска в теме Expressive, как у тематической строки Pixel: «G», микрофон и Lens
+ * не фирменных цветов, а в нескольких тонах акцента. [main] — основной (красная часть «G»), [soft] — светлый
+ * (жёлтая), [second] — тон третичного цвета (зелёная), [deep] — глубокий (синяя). [light] — для текста на [deep].
+ * Тона подбираются к фону строки: тёмные на светлой, светлые на тёмной.
+ */
+@androidx.compose.runtime.Immutable
+class ThemedGlyphs(val main: Color, val soft: Color, val second: Color, val deep: Color, val light: Color)
+
+@Composable
+fun themedGlyphs(background: Color): ThemedGlyphs {
+    val cs = MaterialTheme.colorScheme
+    val primary = cs.primary
+    val tertiary = cs.tertiary
+    val onLight = background.luminance() > 0.35f
+    return remember(primary, tertiary, onLight) {
+        val p = com.materialkolor.hct.Hct.fromInt(primary.toArgb())
+        val t = com.materialkolor.hct.Hct.fromInt(tertiary.toArgb())
+        val pc = p.chroma.coerceAtMost(48.0)
+        val tc = t.chroma.coerceAtMost(40.0)
+        fun h(hue: Double, chroma: Double, tone: Double) = Color(com.materialkolor.hct.Hct.from(hue, chroma, tone).toInt())
+        if (onLight) ThemedGlyphs(
+            main = h(p.hue, pc, 42.0), soft = h(p.hue, pc * 0.45, 70.0), second = h(t.hue, tc, 48.0),
+            deep = h(p.hue, pc * 0.9, 28.0), light = h(p.hue, pc * 0.3, 95.0),
+        ) else ThemedGlyphs(
+            main = h(p.hue, pc * 0.8, 80.0), soft = h(p.hue, pc * 0.35, 93.0), second = h(t.hue, tc * 0.8, 82.0),
+            deep = h(p.hue, pc * 0.5, 88.0), light = h(p.hue, pc * 0.9, 25.0),
+        )
+    }
+}
+
+/** Микрофон в тонах палитры: капсула — третичным тоном, подставка — глубоким. */
+@Composable
+private fun MicMark(modifier: Modifier, c: ThemedGlyphs) {
+    Canvas(modifier) {
+        val w = size.minDimension
+        val ox = (size.width - w) / 2f
+        val oy = (size.height - w) / 2f
+        val capW = w * 0.34f
+        val capH = w * 0.52f
+        drawRoundRect(
+            c.second, Offset(ox + (w - capW) / 2f, oy + w * 0.06f), Size(capW, capH),
+            androidx.compose.ui.geometry.CornerRadius(capW / 2f),
+        )
+        val st = w * 0.09f
+        val line = Stroke(st, cap = StrokeCap.Round)
+        val arcW = w * 0.58f
+        drawArc(c.deep, 0f, 180f, false, Offset(ox + (w - arcW) / 2f, oy + w * 0.28f), Size(arcW, w * 0.46f), style = line)
+        drawLine(c.deep, Offset(ox + w / 2f, oy + w * 0.74f), Offset(ox + w / 2f, oy + w * 0.92f), st, StrokeCap.Round)
+    }
+}
+
+/** Lens в тонах палитры: углы рамки разными тонами, круг в центре и точка, как у тематического значка Pixel. */
+@Composable
+private fun ThemedLensMark(modifier: Modifier, c: ThemedGlyphs) {
+    Canvas(modifier) {
+        val w = size.minDimension
+        val st = w * 0.11f
+        val pad = st / 2f + w * 0.06f
+        val corner = w * 0.3f
+        val line = Stroke(st, cap = StrokeCap.Round)
+        drawArc(c.second, 180f, 90f, false, Offset(pad, pad), Size(corner * 2, corner * 2), style = line)
+        drawArc(c.main, 270f, 90f, false, Offset(w - pad - corner * 2, pad), Size(corner * 2, corner * 2), style = line)
+        drawArc(c.soft, 90f, 90f, false, Offset(pad, w - pad - corner * 2), Size(corner * 2, corner * 2), style = line)
+        drawCircle(c.second, w * 0.16f, Offset(w / 2f, w / 2f))
+        drawCircle(c.main, w * 0.085f, Offset(w - pad - w * 0.08f, w - pad - w * 0.08f))
     }
 }
 
 /** Многоцветная «G» поиска, нарисованная дугами: синяя перекладина, красная, жёлтая и зелёная четверти. */
 @Composable
-fun GoogleMark(modifier: Modifier) {
+fun GoogleMark(modifier: Modifier, themed: ThemedGlyphs? = null) {
     Canvas(modifier) {
         val w = size.minDimension
         val stroke = w * 0.2f
@@ -269,18 +350,22 @@ fun GoogleMark(modifier: Modifier) {
         fun arc(color: Color, start: Float, sweep: Float) = drawArc(
             color, start, sweep, false, box.topLeft, Size(box.width, box.height), style = Stroke(stroke, cap = StrokeCap.Butt),
         )
-        arc(Color(0xFFEA4335), -150f, 105f)  // красная — сверху
-        arc(Color(0xFFFBBC05), 150f, 60f)    // жёлтая — слева
-        arc(Color(0xFF34A853), 45f, 105f)    // зелёная — снизу
-        arc(Color(0xFF4285F4), -10f, 55f)    // синяя — справа
+        val red = themed?.main ?: Color(0xFFEA4335)
+        val yellow = themed?.soft ?: Color(0xFFFBBC05)
+        val green = themed?.second ?: Color(0xFF34A853)
+        val blue = themed?.deep ?: Color(0xFF4285F4)
+        arc(red, -150f, 105f)    // красная — сверху
+        arc(yellow, 150f, 60f)   // жёлтая — слева
+        arc(green, 45f, 105f)    // зелёная — снизу
+        arc(blue, -10f, 55f)     // синяя — справа
         // Перекладина
-        drawRect(Color(0xFF4285F4), Offset(c.x, c.y - stroke / 2f), Size(r + stroke / 2f, stroke))
+        drawRect(blue, Offset(c.x, c.y - stroke / 2f), Size(r + stroke / 2f, stroke))
     }
 }
 
 /** Значок Lens: углы видоискателя и точка. */
 @Composable
-private fun LensMark(modifier: Modifier) {
+private fun LensMark(modifier: Modifier, tintOverride: Color? = null) {
     val cs = MaterialTheme.colorScheme
     Canvas(modifier) {
         val w = size.minDimension
@@ -288,12 +373,12 @@ private fun LensMark(modifier: Modifier) {
         val pad = st / 2f + w * 0.06f
         val corner = w * 0.3f
         val line = Stroke(st, cap = StrokeCap.Round)
-        val tint = cs.onSurfaceVariant
+        val tint = tintOverride ?: cs.onSurfaceVariant
         // Три угла рамки, четвёртый (правый нижний) — цветная точка, как у Lens
         drawArc(tint, 180f, 90f, false, Offset(pad, pad), Size(corner * 2, corner * 2), style = line)
         drawArc(tint, 270f, 90f, false, Offset(w - pad - corner * 2, pad), Size(corner * 2, corner * 2), style = line)
         drawArc(tint, 90f, 90f, false, Offset(pad, w - pad - corner * 2), Size(corner * 2, corner * 2), style = line)
-        drawCircle(cs.primary, w * 0.16f, Offset(w / 2f, w / 2f))
+        drawCircle(tintOverride ?: cs.primary, w * 0.16f, Offset(w / 2f, w / 2f))
         drawCircle(tint, w * 0.085f, Offset(w - pad - w * 0.08f, w - pad - w * 0.08f))
     }
 }

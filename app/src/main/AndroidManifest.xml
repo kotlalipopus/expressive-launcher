@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Кнопка «Поставить и на системные обои» в настройках «Обои лаунчера» -->
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <!-- Нажатие на часы открывает будильник. Некоторые прошивки (HyperOS) открывают его активность,
+         которой нужно это разрешение, иначе startActivity падает с SecurityException -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
@@ -36,6 +39,8 @@
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:resumeWhilePausing="true"
+            android:screenOrientation="portrait"
+            tools:ignore="LockedOrientationActivity"
             android:stateNotNeeded="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>

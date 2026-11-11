@@ -8,6 +8,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.unit.em
 import com.example.expressivelauncher.data.AppFont
 import java.io.File
@@ -42,19 +43,42 @@ fun resolveFontFamily(font: AppFont, filesDir: File, rev: Int): FontFamily = whe
 
 private fun FontWeight.shifted(shift: Int) = FontWeight((weight + shift * 100).coerceIn(100, 900))
 
-private fun TextStyle.styled(family: FontFamily, shift: Int) = copy(
+private fun TextStyle.styled(family: FontFamily, shift: Int, baseline: BaselineShift?) = copy(
     fontFamily = family,
     fontWeight = (fontWeight ?: FontWeight.Normal).shifted(shift),
+    baselineShift = baseline,
 )
+
+/**
+ * Поправка базовой линии для своего шрифта. Интерфейс центрирует текст по метрикам шрифта (ascent/descent),
+ * а у многих шрифтов из интернета они несимметричны (большой descent или line gap): буквы оказываются выше
+ * центра кнопок и строк. Сравниваем, где у шрифта видимый центр букв относительно центра его метрик, с системным
+ * шрифтом, и сдвигаем текст на разницу. null — поправка не нужна.
+ */
+fun fontBaselineShift(file: File): BaselineShift? = runCatching {
+    fun offset(t: android.graphics.Typeface): Pair<Float, Float> {
+        val p = android.graphics.Paint().apply { typeface = t; textSize = 100f }
+        val fm = p.fontMetrics
+        val r = android.graphics.Rect()
+        p.getTextBounds("Hxн0", 0, 4, r)
+        return (r.exactCenterY() - (fm.ascent + fm.descent) / 2f) to fm.ascent
+    }
+    val (custom, ascent) = offset(android.graphics.Typeface.createFromFile(file))
+    val (system, _) = offset(android.graphics.Typeface.DEFAULT)
+    // Положительное — свой шрифт надо опустить. Сдвиг расширяет строку в ту же сторону, а центрирование
+    // по высоте строки съедает половину, поэтому сдвигаем вдвое
+    val down = (system - custom) * 2f
+    if (kotlin.math.abs(down) < 2f || ascent >= 0f) null else BaselineShift(down / ascent)
+}.getOrNull()
 
 /**
  * Шкала типографики Material 3 Expressive: размеры и веса — из спецификации, меняются только шрифт и общий сдвиг жирности.
  * Обычные стили остаются лёгкими, чтобы выделенные (*Emphasized) действительно выделялись: так строится иерархия.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-fun expressiveTypography(family: FontFamily, shift: Int, boldHeadlines: Boolean = false): Typography {
+fun expressiveTypography(family: FontFamily, shift: Int, boldHeadlines: Boolean = false, baseline: BaselineShift? = null): Typography {
     val b = Typography()
-    fun TextStyle.s() = styled(family, shift)
+    fun TextStyle.s() = styled(family, shift, baseline)
     // Тема Expressive: заголовки крупные и плотные — обычные стили заголовков берут веса Emphasized
     fun pick(regular: TextStyle, emphasized: TextStyle) = (if (boldHeadlines) emphasized else regular).s()
     return Typography(

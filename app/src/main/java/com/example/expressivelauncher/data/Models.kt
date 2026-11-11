@@ -138,7 +138,11 @@ data class Settings(
     val iconShape: IconShape = IconShape.COOKIE_9,
     val iconScale: Float = 1f,
     val themedIcons: Boolean = false,
-    val duotoneIcons: Boolean = false, // значки без монохромного слоя окрашиваются в цвета темы
+    val duotoneIcons: Boolean = false, // устарело: объединено с themedIcons, читается только при переносе настроек
+    /** Фон тематических значков: 0 — тона палитры, 1 — как док, 2 — как строка поиска, 3 — второстепенный (тема Expressive). */
+    val themedIconColors: Int = 0,
+    /** Цвет рисунка тематических значков: -1 — авто (контрастный к фону), 0 — палитра, 1 — как док, 2 — как поиск, 3 — второстепенный. */
+    val themedIconFgColors: Int = -1,
     val iconTheme: String = "", // пусто — системные иконки
     val iconThemeMask: Boolean = false, // обрезать значки темы выбранной формой
     val showHomeLabels: Boolean = true,
@@ -175,6 +179,10 @@ data class Settings(
     val searchPosition: SearchPosition = SearchPosition.BOTTOM,
     val drawerOpacity: Float = 0.94f,
     val blurBackground: Boolean = true,
+    // Expressive: размытие и под меню стола, доком и т.п.; без него — только под меню приложений, виджетами, обоями
+    val blurEverywhere: Boolean = false,
+    // Expressive: мягкое цветное свечение вокруг меню; 0 — выключено
+    val glowStrength: Float = 0.6f,
     val autoKeyboard: Boolean = false,
     val autoLaunchSingle: Boolean = true,
     val hiddenApps: Set<String> = emptySet(),

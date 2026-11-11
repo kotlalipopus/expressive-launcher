@@ -63,6 +63,9 @@ class SettingsStore(context: Context) {
 
     private fun load(): Settings {
         val d = Settings()
+        // Семантика themedIconFgColors изменилась: раньше это был тон рисунка, теперь — цвет фона.
+        // Сохранённый старый выбор один раз сбрасываем на «Авто», чтобы значки не стали невидимыми.
+        val fgMigrated = prefs.getBoolean("themedIconFgMigrated", false)
         return Settings(
             style = enumOf("style", defaultStyle),
             glassOpacity = prefs.getFloat("glassOpacity", d.glassOpacity),
@@ -101,7 +104,10 @@ class SettingsStore(context: Context) {
             showBattery = prefs.getBoolean("showBattery", d.showBattery),
             iconShape = enumOf("iconShape", d.iconShape),
             iconScale = prefs.getFloat("iconScale", d.iconScale),
-            themedIcons = prefs.getBoolean("themedIcons", d.themedIcons),
+            // «Тематические значки» и «Окрашивать все значки» — теперь одна настройка
+            themedIcons = prefs.getBoolean("themedIcons", d.themedIcons) || prefs.getBoolean("duotoneIcons", false),
+            themedIconColors = prefs.getInt("themedIconColors", d.themedIconColors),
+            themedIconFgColors = if (fgMigrated) prefs.getInt("themedIconFgColors", d.themedIconFgColors) else d.themedIconFgColors,
             iconTheme = prefs.getString("iconTheme", d.iconTheme) ?: "",
             iconThemeMask = prefs.getBoolean("iconThemeMask", d.iconThemeMask),
             launchAnimation = prefs.getBoolean("launchAnimation", d.launchAnimation),
@@ -112,7 +118,6 @@ class SettingsStore(context: Context) {
             liteOnPowerSave = prefs.getBoolean("liteOnPowerSave", d.liteOnPowerSave),
             blurStrength = prefs.getFloat("blurStrength", d.blurStrength),
             language = enumOf("language", d.language),
-            duotoneIcons = prefs.getBoolean("duotoneIcons", d.duotoneIcons),
             showHomeLabels = prefs.getBoolean("showHomeLabels", d.showHomeLabels),
             labelScale = prefs.getFloat("labelScale", d.labelScale),
             showBadges = prefs.getBoolean("showBadges", d.showBadges),
@@ -138,6 +143,8 @@ class SettingsStore(context: Context) {
             searchPosition = enumOf("searchPosition", d.searchPosition),
             drawerOpacity = prefs.getFloat("drawerOpacity", d.drawerOpacity),
             blurBackground = prefs.getBoolean("blurBackground", d.blurBackground),
+            blurEverywhere = prefs.getBoolean("blurEverywhere", d.blurEverywhere),
+            glowStrength = prefs.getFloat("glowStrength", d.glowStrength),
             autoKeyboard = prefs.getBoolean("autoKeyboard", d.autoKeyboard),
             autoLaunchSingle = prefs.getBoolean("autoLaunchSingle", d.autoLaunchSingle),
             hiddenApps = prefs.getStringSet("hiddenApps", emptySet())?.toSet() ?: emptySet(),
@@ -196,6 +203,9 @@ class SettingsStore(context: Context) {
             .putString("iconShape", s.iconShape.name)
             .putFloat("iconScale", s.iconScale)
             .putBoolean("themedIcons", s.themedIcons)
+            .putInt("themedIconColors", s.themedIconColors)
+            .putInt("themedIconFgColors", s.themedIconFgColors)
+            .putBoolean("themedIconFgMigrated", true)
             .putString("iconTheme", s.iconTheme)
             .putBoolean("iconThemeMask", s.iconThemeMask)
             .putBoolean("launchAnimation", s.launchAnimation)
@@ -206,7 +216,7 @@ class SettingsStore(context: Context) {
             .putBoolean("liteOnPowerSave", s.liteOnPowerSave)
             .putFloat("blurStrength", s.blurStrength)
             .putString("language", s.language.name)
-            .putBoolean("duotoneIcons", s.duotoneIcons)
+            .putBoolean("duotoneIcons", false)
             .putBoolean("showHomeLabels", s.showHomeLabels)
             .putFloat("labelScale", s.labelScale)
             .putBoolean("showBadges", s.showBadges)
@@ -232,6 +242,8 @@ class SettingsStore(context: Context) {
             .putString("searchPosition", s.searchPosition.name)
             .putFloat("drawerOpacity", s.drawerOpacity)
             .putBoolean("blurBackground", s.blurBackground)
+            .putBoolean("blurEverywhere", s.blurEverywhere)
+            .putFloat("glowStrength", s.glowStrength)
             .putBoolean("autoKeyboard", s.autoKeyboard)
             .putBoolean("autoLaunchSingle", s.autoLaunchSingle)
             .putStringSet("hiddenApps", s.hiddenApps)

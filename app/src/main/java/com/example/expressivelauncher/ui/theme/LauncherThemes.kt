@@ -49,6 +49,11 @@ data class ThemeSpec(
     val colorOptions: Boolean,
     /** Свои настройки темы на странице «Темы». */
     val options: List<ThemeOption>,
+    /**
+     * Док, строка поиска и меню стола — из фиксированных тонов акцента (primaryFixedDim / onPrimaryFixedVariant):
+     * насыщенная панель с тональными элементами, одинаковая в светлой и тёмной теме.
+     */
+    val accentChrome: Boolean = false,
 ) {
     /**
      * Настройки, по которым рисуется интерфейс в этой теме. Выбор пользователя не теряется: тема лишь
@@ -59,6 +64,9 @@ data class ThemeSpec(
         val themed = when (style) {
             LauncherStyle.LIQUID_GLASS -> s.copy(
                 iconShape = s.glassIconShape,
+                // Цвета дока и поиска — у Expressive; у стекла их нет
+                themedIconColors = 0,
+                themedIconFgColors = -1,
                 blurBackground = true,
                 blurStrength = s.blurStrength.coerceAtLeast(0.25f),
                 dockBackground = true,
@@ -89,8 +97,9 @@ data class ThemeSpec(
                 dockRadius = 20,
                 drawerOpacity = 1f,
                 // Тематические фигуры значков (печенье и т.п.) — черта Expressive; в Lite значки круглые
-                // (iconShape = liteIconShape выше), без двухцветной перекраски
-                duotoneIcons = false,
+                // (iconShape = liteIconShape выше)
+                themedIconColors = 0,
+                themedIconFgColors = -1,
             )
         }
         // «Убрать анимации» в системе: всё, что можно, происходит сразу
@@ -99,7 +108,7 @@ data class ThemeSpec(
 }
 
 /** Настройки, которые показываются под выбором темы на странице «Темы». */
-enum class ThemeOption { BLUR_STRENGTH, GLASS_OPACITY, GLASS_ICONS, DYNAMIC_COLOR, ACCENT, ANIM_INTENSITY }
+enum class ThemeOption { BLUR_STRENGTH, GLASS_OPACITY, GLASS_ICONS, DYNAMIC_COLOR, ACCENT, ANIM_INTENSITY, GLOW, BLUR_EVERYWHERE }
 
 object LauncherThemes {
     val LiquidGlass = ThemeSpec(
@@ -135,7 +144,8 @@ object LauncherThemes {
         lite = false,
         portalLaunch = true,
         colorOptions = true,
-        options = listOf(ThemeOption.DYNAMIC_COLOR, ThemeOption.ACCENT, ThemeOption.ANIM_INTENSITY),
+        options = listOf(ThemeOption.DYNAMIC_COLOR, ThemeOption.ACCENT, ThemeOption.GLOW, ThemeOption.BLUR_EVERYWHERE, ThemeOption.ANIM_INTENSITY),
+        accentChrome = true,
     )
 
     val Lite = ThemeSpec(

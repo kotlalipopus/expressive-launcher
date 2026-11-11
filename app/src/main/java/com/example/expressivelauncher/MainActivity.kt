@@ -93,6 +93,7 @@ class MainActivity : ComponentActivity(), HomeActions {
     override var pauseCount: Int = 0
     private var wallpaperLight by mutableStateOf(false)
     private var darkTheme = false
+    private var accentSheet = false
     private var overSurface = false
     private var pendingIconApp: AppInfo? = null
     private var colorsListener: WallpaperManager.OnColorsChangedListener? = null
@@ -254,6 +255,7 @@ class MainActivity : ComponentActivity(), HomeActions {
             val dark = isDarkFor(settings)
             SideEffect {
                 darkTheme = dark
+                accentSheet = spec.accentChrome
                 applySystemBars()
             }
             // Стеклянные настройки и онбординг лежат на размытых обоях: стол под ними не нужен
@@ -420,7 +422,12 @@ class MainActivity : ComponentActivity(), HomeActions {
 
     /** На поверхности приложения цвет значков следует теме, на обоях — яркости самих обоев. */
     private fun applySystemBars() {
-        val lightBars = if (overSurface || showSettings) !darkTheme else (customWallpaperLight ?: wallpaperLight)
+        // Меню приложений Expressive — насыщенный тёмный тон акцента в обеих темах: значки строки состояния светлые
+        val lightBars = when {
+            showSettings -> !darkTheme
+            overSurface -> !darkTheme && !accentSheet
+            else -> customWallpaperLight ?: wallpaperLight
+        }
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = lightBars
             isAppearanceLightNavigationBars = lightBars
@@ -545,9 +552,21 @@ class MainActivity : ComponentActivity(), HomeActions {
     }
 
     override fun openClock() {
-        try {
-            startActivity(Intent(AlarmClock.ACTION_SHOW_ALARMS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (_: ActivityNotFoundException) { /* нет часов — молча */ }
+        // На HyperOS ACTION_SHOW_ALARMS открывает HandleSetAlarmActivity, которой нужно разрешение
+        // SET_ALARM (объявлено в манифесте). Раньше это падало с SecurityException прямо из обработчика
+        // нажатия. Теперь любой сбой перехватывается, а если список будильников недоступен — пробуем
+        // само приложение часов, чтобы нажатие никогда не роняло лаунчер
+        val clockApps = listOf(
+            "com.android.deskclock",       // AOSP, Xiaomi/HyperOS
+            "com.google.android.deskclock", // Pixel и другие с Google Clock
+            "com.miui.deskclock",
+            "com.sec.android.app.clockpackage", // Samsung
+        )
+        val candidates = listOf(Intent(AlarmClock.ACTION_SHOW_ALARMS)) +
+            clockApps.mapNotNull { pkg -> runCatching { packageManager.getLaunchIntentForPackage(pkg) }.getOrNull() }
+        for (intent in candidates) {
+            if (runCatching { startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return
+        }
     }
 
     override fun openUrl(url: String) {

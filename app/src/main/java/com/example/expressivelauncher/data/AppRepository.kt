@@ -68,6 +68,8 @@ class AppIcon(
 @Immutable
 class ShortcutEntry(val info: ShortcutInfo, val label: String, val icon: ImageBitmap?)
 
+private val HEX_DIGITS = "0123456789abcdef"
+
 class AppRepository(
     private val context: Context,
     private val scope: CoroutineScope,
@@ -234,8 +236,8 @@ class AppRepository(
 
     // ---------- Дисковый кэш значков: на холодном старте значки читаются готовыми, а не рисуются заново ----------
 
-    // v9: в meta добавлен признак собственного монохромного слоя — старый кэш пересоздаётся
-    private val diskDir = File(context.cacheDir, "icons_v9")
+    // v10: свой монохромный слой не переворачивается, у значков из набора он берётся из приложения; v9: в meta добавлен признак собственного монохромного слоя — старый кэш пересоздаётся
+    private val diskDir = File(context.cacheDir, "icons_v10")
 
     /** Ключ меняется вместе с темой значков, обновлением приложения и размером — устаревший файл просто не найдётся. */
     private fun diskKey(app: AppInfo): String? {
@@ -296,9 +298,23 @@ class AppRepository(
 
     private fun loadThemed(app: AppInfo): AppIcon? {
         val t = theme ?: return null
-        t.iconFor(app.packageName, app.className)?.let { return renderPackIcon(it) }
+        t.iconFor(app.packageName, app.className)?.let { d ->
+            val icon = renderPackIcon(d)
+            // У значка из набора нет своего монохромного слоя: тематическим он становится по слою самого приложения
+            if (icon.mono != null) return icon
+            val native = nativeMono(app) ?: return icon
+            return AppIcon(icon.image, icon.legacy, native.asImageBitmap(), icon.custom, icon.accent, icon.fg, monoNative = true)
+        }
         if (!t.hasShapeTreatment) return null
         return runCatching { composeWithTheme(t, app) }.getOrNull()
+    }
+
+    /** Монохромный слой, который дало само приложение (Android 13+). */
+    private fun nativeMono(app: AppInfo): Bitmap? {
+        if (Build.VERSION.SDK_INT < 33) return null
+        val d = systemDrawable(app) as? AdaptiveIconDrawable ?: return null
+        val m = d.monochrome ?: return null
+        return runCatching { MonoSynth.fixSystem(renderLayers(iconPx, null, m, alphaOnly = true)) }.getOrNull()
     }
 
     private fun renderPackIcon(d: Drawable): AppIcon {
@@ -430,7 +446,18 @@ class AppRepository(
 
     // ---------- Свой значок приложения ----------
 
-    private fun sha(key: String) = MessageDigest.getInstance("SHA-1").digest(key.toByteArray()).joinToString("") { "%02x".format(it) }
+    // Без "%02x".format на каждый байт: он форматирует строку через Locale в цикле, а хэш считается для каждого
+    // значка при поиске своего значка и при прокрутке списка приложений
+    private fun sha(key: String): String {
+        val bytes = MessageDigest.getInstance("SHA-1").digest(key.toByteArray())
+        val hex = CharArray(bytes.size * 2)
+        for (i in bytes.indices) {
+            val v = bytes[i].toInt() and 0xFF
+            hex[i * 2] = HEX_DIGITS[v ushr 4]
+            hex[i * 2 + 1] = HEX_DIGITS[v and 0x0F]
+        }
+        return String(hex)
+    }
 
     private fun overrideFile(key: String) = File(overridesDir, sha(key) + ".png")
 

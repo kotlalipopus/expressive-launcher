@@ -3,6 +3,7 @@ package com.example.expressivelauncher.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -64,10 +65,21 @@ import com.example.expressivelauncher.ui.LocalRepo
 import com.example.expressivelauncher.ui.LocalSettings
 import com.example.expressivelauncher.ui.LocalWallpaperLight
 
+/**
+ * Готовые формы значка: `MaterialShapes.*.toShape()` создаёт объект заново, а значок запрашивает форму
+ * при каждой композиции — при прокрутке меню приложений это сотни объектов в секунду. Форма неизменна,
+ * поэтому строим её один раз на [IconShape].
+ */
+private val composeShapes = HashMap<IconShape, Shape>()
+
+/** Цвет рисунка тематических значков «Авто»: контрастный к выбранному фону. */
+private const val THEMED_FG_AUTO = -1
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun IconShape.toComposeShape(): Shape =
-    when (this) {
+fun IconShape.toComposeShape(): Shape {
+    composeShapes[this]?.let { return it }
+    val shape = when (this) {
         IconShape.CIRCLE -> CircleShape
         IconShape.SQUIRCLE -> RoundedCornerShape(percent = 34)
         IconShape.ROUNDED -> RoundedCornerShape(percent = 22)
@@ -82,6 +94,9 @@ fun IconShape.toComposeShape(): Shape =
         IconShape.PUFFY -> MaterialShapes.Puffy.toShape()
         IconShape.CONTINUOUS -> com.example.expressivelauncher.ui.home.ContinuousSquircle.toShape()
     }
+    composeShapes[this] = shape
+    return shape
+}
 
 /** Как именно выглядит значок при текущих настройках; один расчёт на стол и на анимацию запуска. */
 @Immutable
@@ -138,17 +153,44 @@ fun iconLook(icon: AppIcon?, settings: Settings, colors: ColorScheme, glass: Boo
             cacheKey = "g$id|${settings.glassIconStyle}|${plate.toArgb()}|${glyph.toArgb()}|$hl",
         )
     }
-    // Тематическими становятся все значки, у которых есть монохромный слой: свой у приложения или синтезированный
+    // Одна настройка «Тематические значки»: приложение со своим тематическим (монохромным) значком показывает его,
+    // у остальных — синтезированный рисунок, а если его нет — сам значок, перекрашенный в те же два цвета.
+    // Раньше перекраска («Окрашивать все значки») была отдельной и другого цвета
     val themed = settings.themedIcons && icon.mono != null
-    val duotone = !themed && settings.duotoneIcons
+    val duotone = settings.themedIcons && !themed
     // Цвета тематических значков — по «фиксированным» тонам палитры (одинаковым в светлой и тёмной теме), как у Pixel:
     // в тёмной теме — тёмная акцентная плашка (тон 30) и светлый рисунок (тон 90), в светлой — наоборот.
     // Контраст тонов 30 и 90 высокий: рисунок хорошо виден. Раньше плашка и рисунок были близких тонов
-    val themedBg = if (dark) colors.onPrimaryFixedVariant else colors.primaryFixed
-    val themedFg = if (dark) colors.primaryFixed else colors.onPrimaryFixedVariant
+    // Свой тёмный акцент: плашки тёмные и в светлой теме — иначе тёмно-красный превращался в розовые значки
+    val darkPlate = dark || com.example.expressivelauncher.ui.theme.prefersDarkPlates(settings)
+    // Цвета на выбор (Expressive): фон и рисунок настраиваются отдельно. Каждый вариант — это цвет фона
+    // из первого списка: выбрав «Как док» для рисунка, получаешь ровно цвет плашки дока.
+    fun colorFor(mode: Int): Color = when (mode) {
+        0 -> if (darkPlate) colors.onPrimaryFixedVariant else colors.primaryFixed
+        // Второстепенный цвет: фиксированные тона роли secondary — та же логика, что у «Палитры», но другой оттенок
+        3 -> if (darkPlate) colors.onSecondaryFixedVariant else colors.secondaryFixed
+        else -> com.example.expressivelauncher.ui.theme.themedIconColor(colors.primary, dark, mode)
+    }
+    val themedBg = colorFor(settings.themedIconColors)
+    // «Авто» — контрастный к фону рисунок, как раньше: иначе он может слиться с плашкой
+    val autoFg = when (settings.themedIconColors) {
+        0 -> if (darkPlate) colors.primaryFixed else colors.onPrimaryFixedVariant
+        3 -> if (darkPlate) colors.secondaryFixed else colors.onSecondaryFixedVariant
+        else -> com.example.expressivelauncher.ui.theme.themedIconPair(colors.primary, dark, settings.themedIconColors).second
+    }
+    val fgMode = settings.themedIconFgColors
+    val themedFg = if (fgMode == THEMED_FG_AUTO) autoFg else colorFor(fgMode)
+    // Перекраска значка без тематической версии — в те же два цвета, что у тематических. Фон значка (то, чего в нём
+    // больше, — по среднему цвету) становится плашкой, рисунок — цветом рисунка. Раньше светлый фон значка уходил в
+    // цвет рисунка, и такие значки выглядели «вывернутыми» и другого цвета, чем остальные
+    val iconLight = icon.accent != 0 && Color(icon.accent).luminance() > 0.45f
+    val duoBg = themedBg
+    val duoFg = themedFg
+    val duoDarkTo = if (iconLight) themedFg else themedBg
+    val duoLightTo = if (iconLight) themedBg else themedFg
     val bg = when {
         themed -> themedBg
-        duotone -> colors.primaryContainer
+        duotone -> duoBg
         icon.legacy -> colors.surfaceContainerHighest
         else -> colors.surfaceVariant
     }
@@ -157,14 +199,14 @@ fun iconLook(icon: AppIcon?, settings: Settings, colors: ColorScheme, glass: Boo
         background = bg,
         filter = when {
             themed -> ColorFilter.tint(themedFg)
-            duotone -> duotoneFilter(colors.primaryContainer, colors.onPrimaryContainer)
+            duotone -> duotoneFilter(duoDarkTo, duoLightTo)
             else -> null
         },
         clip = masked,
         accent = if (themed || duotone) bg.toArgb() else icon.accent,
         highlight = highlight,
         highlightStrength = strength,
-        cacheKey = "n$id|$themed|$duotone|${bg.toArgb()}|${themedFg.toArgb()}|${colors.onPrimaryContainer.toArgb()}|$masked|$hl",
+        cacheKey = "n$id|$themed|$duotone|${bg.toArgb()}|${themedFg.toArgb()}|${duoFg.toArgb()}|$iconLight|$masked|$hl",
     )
 }
 
@@ -296,8 +338,9 @@ fun AppIconImage(
     // Тема Lite: формы значков под пальцем не морфятся
     val pressMorph = if (spec.morph) morph else null
     val look = remember(
-        icon, settings.themedIcons, settings.duotoneIcons, settings.iconThemeMask, colors, spec.glass,
+        icon, settings.themedIcons, settings.themedIconColors, settings.themedIconFgColors, settings.iconThemeMask, colors, spec.glass,
         settings.glassIconStyle, settings.glassIconHighlight, settings.glassHighlightStrength,
+        settings.colorSource, settings.seedColor,
     ) { iconLook(icon, settings, colors, spec.glass) }
     val iconShape = appStyle?.shape ?: settings.iconShape
     val badge = if (showBadge && settings.showBadges) LocalBadges.current.value[app.packageName] ?: 0 else 0
@@ -368,19 +411,38 @@ fun AppIconImage(
             }
         }
         if (badge > 0) {
+            // Expressive: счётчик цветом акцента с каймой, выступает за угол значка, как значок M3 Badge
+            val accentBadge = spec.accentChrome
+            val ac = com.example.expressivelauncher.ui.theme.accentColors()
             Box(
                 Modifier
                     .align(Alignment.TopEnd)
-                    .size(size * 0.3f)
+                    .then(if (accentBadge) Modifier.offset(size * 0.1f, -size * 0.1f) else Modifier)
+                    .size(size * if (accentBadge) 0.36f else 0.3f)
                     .clip(CircleShape)
-                    .background(colors.error),
+                    .background(if (accentBadge) ac.field else colors.error)
+                    .padding(if (accentBadge) size * 0.03f else 0.dp)
+                    .clip(CircleShape)
+                    .background(if (accentBadge) ac.pill else colors.error),
                 contentAlignment = Alignment.Center,
             ) {
+                // Высота строки = размер шрифта и центрирование по ней: иначе цифра наследовала высоту строки
+                // bodyLarge (24 sp) и сидела в кружке заметно ниже центра
+                val fs = (size.value * 0.16f).sp
                 Text(
                     if (badge > 9) "9+" else badge.toString(),
-                    color = colors.onError,
-                    fontSize = (size.value * 0.16f).sp,
+                    color = if (accentBadge) ac.onPill else colors.onError,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = fs,
+                        lineHeight = fs,
+                        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                            androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                            androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+                        ),
+                    ),
                     maxLines = 1,
+                    // Цифры визуально «тяжелее» снизу: чуть выше геометрического центра кружок читается ровнее
+                    modifier = Modifier.offset(y = -size * 0.02f),
                 )
             }
         }
@@ -390,7 +452,7 @@ fun AppIconImage(
 private val labelShadow = Shadow(Color.Black.copy(alpha = 0.55f), blurRadius = 6f)
 
 @Composable
-fun AppLabel(text: String, modifier: Modifier = Modifier, onWallpaper: Boolean = false, lines: Int = 1) {
+fun AppLabel(text: String, modifier: Modifier = Modifier, onWallpaper: Boolean = false, lines: Int = 1, color: Color = Color.Unspecified) {
     val lightWallpaper = LocalWallpaperLight.current
     Text(
         text = text,
@@ -400,6 +462,7 @@ fun AppLabel(text: String, modifier: Modifier = Modifier, onWallpaper: Boolean =
             if (onWallpaper && !lightWallpaper) scaled.copy(shadow = labelShadow) else scaled
         },
         color = when {
+            color != Color.Unspecified -> color
             !onWallpaper -> MaterialTheme.colorScheme.onSurface
             lightWallpaper -> Color(0xFF1B1B1F)
             else -> Color.White

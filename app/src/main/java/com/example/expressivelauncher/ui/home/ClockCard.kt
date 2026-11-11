@@ -2,6 +2,9 @@
 
 package com.example.expressivelauncher.ui.home
 
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -70,20 +73,26 @@ import java.util.Locale
 private fun rememberTime(refreshKey: Int): Pair<Date, Boolean> {
     val context = LocalContext.current
     var now by remember { mutableStateOf(Date()) }
+    // 12/24-часовой режим — тоже состояние: система читается один раз в минуту, а не на каждую рекомпозицию
+    var is24 by remember { mutableStateOf(DateFormat.is24HourFormat(context)) }
     // При возвращении на стол время обновляем сразу: пока процесс был заморожен, тики могли не приходить
     remember(refreshKey) { now = Date() }
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
-            override fun onReceive(c: Context?, i: Intent?) { now = Date() }
+            override fun onReceive(c: Context?, i: Intent?) {
+                now = Date()
+                is24 = DateFormat.is24HourFormat(context)
+            }
         }
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_TIME_TICK); addAction(Intent.ACTION_TIME_CHANGED); addAction(Intent.ACTION_TIMEZONE_CHANGED)
         }
         ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         now = Date()
+        is24 = DateFormat.is24HourFormat(context)
         onDispose { context.unregisterReceiver(receiver) }
     }
-    return now to DateFormat.is24HourFormat(context)
+    return now to is24
 }
 
 @Composable
@@ -109,19 +118,21 @@ private fun rememberBattery(): State<Pair<Int, Boolean>> {
 }
 
 /**
- * Часы как элемент сетки. Крупные: часы и минуты в двух фигурах Expressive, которые чуть заходят друг на друга
- * и проворачиваются при смене значения. Размер вычисляется из ячеек, поэтому подходит для любой сетки.
+ * Часы как элемент сетки: время крупным текстом прямо на обоях, под ним одной строкой дата и заряд батареи.
+ * Без фигур, подложек и чипов — читаемость обеспечивает цвет текста под обои (светлые/тёмные), как у подписей
+ * значков. Шрифт — выбранный в настройках. BIG — крупное время над строкой, COMPACT — время и справа дата.
  */
 @Composable
 fun ClockCard(style: ClockStyle, refreshKey: Int) {
     val s = LocalSettings.current
     val (now, is24) = rememberTime(refreshKey)
     val locale = Locale.getDefault()
-    val hours = remember(now, is24) { SimpleDateFormat(if (is24) "HH" else "h", locale).format(now) }
-    val minutes = remember(now) { SimpleDateFormat("mm", locale).format(now) }
-    val date = remember(now) { SimpleDateFormat(DateFormat.getBestDateTimePattern(locale, "EEEMMMd"), locale).format(now) }
-        .replaceFirstChar { it.uppercase() }
-    val cs = MaterialTheme.colorScheme
+    // Форматтеры пересоздаются только при смене языка или 12/24-часового режима, а не три раза в минуту
+    val hoursFormat = remember(locale, is24) { SimpleDateFormat(if (is24) "HH" else "h", locale) }
+    val minutesFormat = remember(locale) { SimpleDateFormat("mm", locale) }
+    val dateFormat = remember(locale) { SimpleDateFormat(DateFormat.getBestDateTimePattern(locale, "EEEMMMd"), locale) }
+    val time = remember(now, hoursFormat, minutesFormat) { hoursFormat.format(now) + ":" + minutesFormat.format(now) }
+    val date = remember(now, dateFormat) { dateFormat.format(now).replaceFirstChar { it.uppercase() } }
     val (percent, charging) = rememberBattery().value
     val showBattery = s.showBattery && percent > 0
     val horizontal = when (s.clockAlign) {
@@ -129,57 +140,56 @@ fun ClockCard(style: ClockStyle, refreshKey: Int) {
         ClockAlign.CENTER -> Alignment.CenterHorizontally
         ClockAlign.END -> Alignment.End
     }
-    val rowArrangement = when (s.clockAlign) {
-        ClockAlign.START -> Arrangement.Start
-        ClockAlign.CENTER -> Arrangement.Center
-        ClockAlign.END -> Arrangement.End
-    }
+    val glass = com.example.expressivelauncher.ui.theme.LocalThemeSpec.current.glass
+    // Текст прямо на обоях: цвет по яркости обоев, на тёмных — мягкая тень
+    val light = com.example.expressivelauncher.ui.LocalWallpaperLight.current
+    val ink = if (light) Color(0xFF1B1B1F) else Color.White
+    val shadow = if (light) null else Shadow(Color.Black.copy(alpha = 0.4f), offset = Offset(0f, 2f), blurRadius = 10f)
+    val weight = if (glass) FontWeight.Light else FontWeight.Medium
 
-    val spec = com.example.expressivelauncher.ui.theme.LocalThemeSpec.current
-    if (spec.glass || spec.lite) {
-        FlatClock(spec.glass, hours, minutes, date, showBattery, percent, charging, horizontal)
-        return
-    }
     BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
-        val chips: @Composable () -> Unit = {
-            if (s.showDate) InfoChip(date, cs.primaryContainer, cs.onPrimaryContainer, null)
-            if (showBattery) InfoChip(
-                "$percent%", cs.surfaceContainerHigh, cs.onSurface,
-                if (charging) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryFull,
-            )
+        val info: @Composable () -> Unit = {
+            if (s.showDate || showBattery) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val text = MaterialTheme.typography.titleMedium.copy(shadow = shadow)
+                if (s.showDate) Text(date, style = text, color = ink.copy(alpha = 0.92f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (s.showDate && showBattery) Box(Modifier.size(4.dp).clip(CircleShape).background(ink.copy(alpha = 0.6f)))
+                if (showBattery) {
+                    Icon(
+                        if (charging) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryFull, null,
+                        tint = ink.copy(alpha = 0.92f), modifier = Modifier.size(18.dp),
+                    )
+                    Text("$percent%", style = text, color = ink.copy(alpha = 0.92f), maxLines = 1)
+                }
+            }
         }
         if (style == ClockStyle.BIG) {
-            val chipsHeight = if (s.showDate || showBattery) 44.dp else 0.dp
-            val blob = min(min(maxHeight - chipsHeight, (maxWidth / 2f) * 1.05f), 176.dp * s.clockScale).coerceAtLeast(56.dp)
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = horizontal, verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)) {
-                val calendar = remember(now) { Calendar.getInstance().apply { time = now } }
-                Row(horizontalArrangement = Arrangement.spacedBy(-blob * 0.1f)) {
-                    DigitBlob(hours, MaterialShapes.Cookie12Sided.toShape(), cs.primary, cs.onPrimary, blob, calendar.get(Calendar.HOUR_OF_DAY) * 30f)
-                    DigitBlob(minutes, MaterialShapes.Cookie9Sided.toShape(), cs.tertiary, cs.onTertiary, blob, calendar.get(Calendar.MINUTE) * 40f)
-                }
-                if (chipsHeight > 0.dp) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { chips() }
+            val infoHeight = if (s.showDate || showBattery) 28.dp else 0.dp
+            val size = with(LocalDensity.current) {
+                min(min(maxHeight - infoHeight, maxWidth * 0.5f) * 0.9f, 112.dp).toSp()
+            } * s.clockScale
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = horizontal, verticalArrangement = Arrangement.Center) {
+                RollingText(
+                    time,
+                    LocalClockStyle.current.copy(fontSize = size, lineHeight = size * 1.05f, fontWeight = weight, letterSpacing = (-size.value * 0.025f).sp, shadow = shadow),
+                    ink,
+                )
+                info()
             }
         } else {
+            val size = 40.sp * s.clockScale
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, rowArrangement.let { if (it == Arrangement.Start) Alignment.Start else if (it == Arrangement.End) Alignment.End else Alignment.CenterHorizontally }),
+                horizontalArrangement = Arrangement.spacedBy(16.dp, horizontal.let { if (it == Alignment.Start) Alignment.Start else if (it == Alignment.End) Alignment.End else Alignment.CenterHorizontally }),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.clip(CircleShape).background(cs.primaryContainer).padding(horizontal = 20.dp, vertical = 6.dp)) {
-                    RollingText("$hours:$minutes", LocalClockStyle.current.copy(fontSize = 32.sp * s.clockScale, lineHeight = 40.sp * s.clockScale), cs.onPrimaryContainer)
-                }
-                chips()
+                RollingText(
+                    time,
+                    LocalClockStyle.current.copy(fontSize = size, lineHeight = size * 1.05f, fontWeight = weight, letterSpacing = (-size.value * 0.025f).sp, shadow = shadow),
+                    ink,
+                )
+                info()
             }
         }
-    }
-}
-
-@Composable
-private fun DigitBlob(text: String, shape: Shape, bg: Color, fg: Color, size: Dp, turn: Float) {
-    val rotation by animateFloatAsState(turn, MaterialTheme.motionScheme.slowSpatialSpec(), label = "clockTurn")
-    val fontSize = with(LocalDensity.current) { (size * 0.46f).toSp() }
-    BlobBadge(shape, bg, size, rotation = { rotation }) {
-        RollingText(text, LocalClockStyle.current.copy(fontSize = fontSize, lineHeight = fontSize), fg)
     }
 }
 
@@ -193,85 +203,4 @@ private fun RollingText(text: String, style: TextStyle, color: Color) {
         transitionSpec = { (slideInVertically(spec) { it } + fadeIn(fade)) togetherWith (slideOutVertically(spec) { -it } + fadeOut(fade)) },
         label = "clockDigits",
     ) { Text(it, style = style, color = color, maxLines = 1) }
-}
-
-@Composable
-private fun InfoChip(text: String, bg: Color, fg: Color, icon: ImageVector?) {
-    Row(
-        Modifier.clip(CircleShape).background(bg).padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        if (icon != null) Icon(icon, null, tint = fg, modifier = Modifier.size(18.dp))
-        Text(text, style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-/**
- * Часы тем Liquid Glass и Lite. Liquid Glass: стеклянная карточка с крупным тонким временем и стеклянными
- * чипами даты и заряда. Lite: спокойный плоский Material You — время текстом, сплошные тональные чипы, без фигур.
- */
-@Composable
-private fun FlatClock(
-    glass: Boolean, hours: String, minutes: String, date: String,
-    showBattery: Boolean, percent: Int, charging: Boolean, horizontal: Alignment.Horizontal,
-) {
-    val s = LocalSettings.current
-    val cs = MaterialTheme.colorScheme
-    val lightWallpaper = com.example.expressivelauncher.ui.LocalWallpaperLight.current
-    BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
-        val timeSize = with(LocalDensity.current) { min(maxHeight * 0.5f, maxWidth * 0.26f).toSp() } * s.clockScale
-        val chipRow: @Composable () -> Unit = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (s.showDate) FlatChip(glass, date, null)
-                if (showBattery) FlatChip(glass, "$percent%", if (charging) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryFull)
-            }
-        }
-        if (glass) {
-            com.example.expressivelauncher.ui.components.LiquidSurface(
-                androidx.compose.foundation.shape.RoundedCornerShape(32.dp), Modifier.fillMaxSize(), blockTouches = false,
-            ) {
-                Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 10.dp), horizontalAlignment = horizontal, verticalArrangement = Arrangement.Center) {
-                    RollingText(
-                        "$hours:$minutes",
-                        LocalClockStyle.current.copy(fontSize = timeSize, lineHeight = timeSize, fontWeight = androidx.compose.ui.text.font.FontWeight.Light),
-                        cs.onSurface,
-                    )
-                    chipRow()
-                }
-            }
-        } else {
-            // Lite: текст прямо на обоях, читаемый за счёт цвета, а не подложки
-            val onWallpaper = if (lightWallpaper) Color(0xFF1B1B1F) else Color.White
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = horizontal, verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically)) {
-                Text(
-                    "$hours:$minutes",
-                    style = LocalClockStyle.current.copy(fontSize = timeSize, lineHeight = timeSize, fontWeight = androidx.compose.ui.text.font.FontWeight.Normal),
-                    color = onWallpaper, maxLines = 1,
-                )
-                chipRow()
-            }
-        }
-    }
-}
-
-@Composable
-private fun FlatChip(glass: Boolean, text: String, icon: ImageVector?) {
-    val cs = MaterialTheme.colorScheme
-    val content: @Composable () -> Unit = {
-        Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (icon != null) Icon(icon, null, modifier = Modifier.size(18.dp))
-            Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-    if (glass) {
-        // Внутри стеклянной карточки: обои второй раз не подкладываются
-        com.example.expressivelauncher.ui.components.LiquidSurface(CircleShape, overBlur = true, shadow = false, blockTouches = false) { content() }
-    } else {
-        androidx.compose.material3.Surface(shape = CircleShape, color = cs.surfaceContainerHigh, contentColor = cs.onSurface) { content() }
-    }
 }

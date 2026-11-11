@@ -11,12 +11,23 @@ android {
         applicationId = "com.example.expressivelauncher"
         minSdk = 27
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        // versionCode обязательно расти: иначе часть установщиков не ставит APK поверх уже
+        // установленной версии и пишет «Приложение не установлено»
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        // V1 (JAR) нужен старым и сторонним установщикам, V3 — Android 9+. Подпись остаётся тем же
+        // отладочным ключом, поэтому обновления ставятся поверх прошлых сборок без удаления
+        getByName("debug") {
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
+    }
     buildTypes {
         release {
             // Ревизия git и путь к проекту не попадают в APK

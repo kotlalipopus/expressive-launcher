@@ -210,12 +210,19 @@ fun WidgetPicker(vm: LauncherViewModel, onDismiss: () -> Unit, onPick: (AppWidge
     // Liquid Glass: экран выбора лежит прямо на размытых обоях (лёгкое затемнение для читаемости), а группы —
     // жидкое стекло. Полноэкранная стеклянная панель была бы лишним слоем на каждом кадре прокрутки
     val glassTheme = com.example.expressivelauncher.ui.theme.LocalThemeSpec.current.glass
+    val accent = com.example.expressivelauncher.ui.theme.LocalThemeSpec.current.accentChrome
+    val blurUnder = com.example.expressivelauncher.ui.components.glassEnabled()
     val container: @Composable (@Composable () -> Unit) -> Unit = { inner ->
         if (glassTheme) androidx.compose.foundation.layout.Box(
             Modifier.fillMaxSize().blurredWallpaperBackground(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.97f), scrim = 0.32f, sharp = true)
                 .pointerInput(Unit) { },
         ) {
             // Без Surface цвет текста по умолчанию чёрный: задаём цвет темы, иначе заголовок не виден на тёмном фоне
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onSurface) { inner() }
+        }
+        else if (accent) androidx.compose.foundation.layout.Box(
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = if (blurUnder) 0.72f else 0.96f)).pointerInput(Unit) { },
+        ) {
             androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onSurface) { inner() }
         }
         else com.example.expressivelauncher.ui.components.ThemedSurface(androidx.compose.ui.graphics.RectangleShape, MaterialTheme.colorScheme.surfaceContainer, Modifier.fillMaxSize()) { inner() }

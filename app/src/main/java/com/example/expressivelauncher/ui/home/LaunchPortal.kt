@@ -504,10 +504,13 @@ private fun DrawScope.drawFlight(
 
     // 2. Затем позиция и размер перетекают к окну; степень > 1 оставляет начало пути за ростом значка
     val m = ((p - 0.06f) / 0.94f).coerceIn(0f, 1.03f).pow(1.35f)
+    // Высота догоняет ширину позже: у значка карточка почти квадратная, а не высокая «пилюля» с пропорциями
+    // экрана — так она садится в значок и при быстром открытии-закрытии не торчит над ним столбом
+    val mh = m.pow(1.5f)
     val left = lerpF(cx - halfW, 0f, m)
-    val top = lerpF(cy - halfH, 0f, m)
+    val top = lerpF(cy - halfH, 0f, mh)
     val right = lerpF(cx + halfW, size.width, m)
-    val bottom = lerpF(cy + halfH, size.height, m)
+    val bottom = lerpF(cy + halfH, size.height, mh)
     val w = right - left
     val h = bottom - top
     if (w <= 0f || h <= 0f) return
@@ -535,8 +538,10 @@ private fun DrawScope.drawFlight(
         drawPath(t.composePath, container, alpha = containerAlpha)
     }
 
-    // 3. Значок внутри растёт вместе с окном и растворяется; одна формула для открытия и закрытия
-    val iconAlpha = (1f - smooth(0.2f, 0.6f, m)) * alpha
+    // 3. Значок внутри растёт вместе с окном и держится, пока не появится окно приложения, — как заставка
+    // запуска Android: раньше он гас на середине пути, и карточка была пустым серым прямоугольником.
+    // Одна формула для открытия и закрытия: при сворачивании значок проявляется раньше, чем карточка сядет
+    val iconAlpha = (1f - smooth(0.5f, 0.97f, m)) * alpha
     val image = look?.image ?: return
     if (iconAlpha <= 0f) return
     val iconSize = min(min(w, h), lerpF(anchor.width * grow, iconTargetPx, smooth(0f, 1f, m)))

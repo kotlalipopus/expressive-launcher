@@ -1,5 +1,6 @@
 package com.example.expressivelauncher.ui.home
 
+import com.example.expressivelauncher.ui.components.accentGlow
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -61,7 +62,10 @@ fun AnimatedVisibilityScope.WallpaperSheet(vm: LauncherViewModel, onDismiss: () 
             color = cs.surfaceContainer,
             contentColor = cs.onSurface,
             shadowElevation = 3.dp,
-            modifier = Modifier.padding(12.dp).fillMaxWidth().heightIn(max = 620.dp).animateEnterExit(
+            blurPanel = false,
+            modifier = Modifier.padding(12.dp).fillMaxWidth().heightIn(max = 620.dp)
+                .accentGlow(MaterialTheme.shapes.extraLargeIncreased)
+                .animateEnterExit(
                 enter = slideInVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { it },
                 exit = slideOutVertically(MaterialTheme.motionScheme.fastSpatialSpec()) { it },
             ),

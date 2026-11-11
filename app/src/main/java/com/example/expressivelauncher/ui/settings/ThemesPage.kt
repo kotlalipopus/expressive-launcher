@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Contrast
 import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Opacity
@@ -340,6 +341,17 @@ fun ThemeOptionsSection(vm: LauncherViewModel, spec: ThemeSpec) {
             }
         }
         if (ThemeOption.DYNAMIC_COLOR in spec.options || ThemeOption.ACCENT in spec.options) DynamicColorItems(vm)
+        if (ThemeOption.GLOW in spec.options) {
+            val off = stringResource(R.string.glow_off)
+            SliderItem(Icons.Rounded.Lightbulb, stringResource(R.string.glow_strength), s.glowStrength, 0f..1f, { if (it < 0.01f) off else "${(it * 100).roundToInt()}%" }, steps = 9) { v ->
+                upd { it.copy(glowStrength = v) }
+            }
+        }
+        if (ThemeOption.BLUR_EVERYWHERE in spec.options) {
+            ToggleItem(Icons.Rounded.BlurOn, stringResource(R.string.blur_everywhere), stringResource(R.string.blur_everywhere_hint), s.blurEverywhere) { v ->
+                upd { it.copy(blurEverywhere = v) }
+            }
+        }
         if (ThemeOption.ANIM_INTENSITY in spec.options) {
             SliderItem(Icons.Rounded.Animation, stringResource(R.string.anim_intensity), s.animBounce, 0f..2f, { "${(it * 100).roundToInt()}%" }, steps = 7) { v ->
                 upd { it.copy(animBounce = v) }
@@ -458,6 +470,7 @@ fun LauncherWallpaperItems(vm: LauncherViewModel) {
         scope.launch {
             if (com.example.expressivelauncher.ui.components.CustomWallpaper.save(context, uri)) {
                 vm.updateSettings { it.copy(customWallpaper = true) }
+                com.example.expressivelauncher.ui.components.CustomWallpaper.applyToSystem(context)
             } else {
                 com.example.expressivelauncher.ui.components.LauncherToast.show(failed)
             }
@@ -470,7 +483,10 @@ fun LauncherWallpaperItems(vm: LauncherViewModel) {
         Icons.Rounded.Wallpaper, stringResource(R.string.custom_wallpaper), stringResource(R.string.custom_wallpaper_hint),
         s.customWallpaper && hasFile,
     ) { on ->
-        if (on && !hasFile) launchPicker() else vm.updateSettings { it.copy(customWallpaper = on) }
+        if (on && !hasFile) launchPicker() else {
+            vm.updateSettings { it.copy(customWallpaper = on) }
+            if (on) scope.launch { com.example.expressivelauncher.ui.components.CustomWallpaper.applyToSystem(context) }
+        }
     }
     ActionItem(Icons.Rounded.Palette, stringResource(R.string.custom_wallpaper_pick), stringResource(R.string.custom_wallpaper_pick_hint), onClick = launchPicker)
     if (hasFile && s.customWallpaper) {
@@ -484,26 +500,5 @@ fun LauncherWallpaperItems(vm: LauncherViewModel) {
         ToggleItem(Icons.Rounded.Wallpaper, stringResource(R.string.wallpaper_parallax), stringResource(R.string.wallpaper_parallax_hint), s.wallpaperParallax) { on ->
             vm.updateSettings { it.copy(wallpaperParallax = on) }
         }
-    }
-    if (hasFile) {
-        // Системные обои = фото лаунчера: при закрытии приложения система рисует свои обои за сжимающимся окном,
-        // и если они другие (например, живые), они мелькают на долю секунды. Только рабочий стол, не экран блокировки
-        val done = stringResource(R.string.custom_wallpaper_to_system_done)
-        val notSet = stringResource(R.string.custom_wallpaper_to_system_failed)
-        ActionItem(
-            Icons.Rounded.Wallpaper, stringResource(R.string.custom_wallpaper_to_system), stringResource(R.string.custom_wallpaper_to_system_hint),
-            onClick = {
-                scope.launch {
-                    val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        runCatching {
-                            com.example.expressivelauncher.ui.components.CustomWallpaper.file(context).inputStream().use {
-                                android.app.WallpaperManager.getInstance(context).setStream(it, null, true, android.app.WallpaperManager.FLAG_SYSTEM)
-                            }
-                        }.isSuccess
-                    }
-                    com.example.expressivelauncher.ui.components.LauncherToast.show(if (ok) done else notSet)
-                }
-            },
-        )
     }
 }

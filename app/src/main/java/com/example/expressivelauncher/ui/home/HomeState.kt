@@ -77,6 +77,12 @@ class DragState {
     }
 }
 
+/** Значок, который сейчас вдавлен пальцем. Клетки читают его через derivedStateOf, поэтому нажатие не перекомпоновывает страницы. */
+@Stable
+class PressedState {
+    var id by mutableStateOf<String?>(null)
+}
+
 /** Выбранные значки для переноса сразу нескольких приложений. */
 @Stable
 class SelectionState {

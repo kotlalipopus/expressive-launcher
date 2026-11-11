@@ -100,8 +100,14 @@ fun LauncherTheme(
     val clockFamily = remember(settings.clockFontSame, settings.clockFont, family, settings.customFontRev) {
         if (settings.clockFontSame) family else resolveFontFamily(settings.clockFont, filesDir, settings.customFontRev)
     }
-    val typography = remember(family, settings.fontWeightShift, spec.boldHeadlines) {
-        expressiveTypography(family, settings.fontWeightShift, spec.boldHeadlines)
+    // Свой шрифт с несимметричными метриками «всплывал» над центром строк — поправка базовой линии
+    val baseline = remember(settings.font, settings.customFontRev) {
+        if (settings.font == com.example.expressivelauncher.data.AppFont.CUSTOM) {
+            customFontFile(filesDir, settings.customFontRev).takeIf { it.exists() }?.let(::fontBaselineShift)
+        } else null
+    }
+    val typography = remember(family, settings.fontWeightShift, spec.boldHeadlines, baseline) {
+        expressiveTypography(family, settings.fontWeightShift, spec.boldHeadlines, baseline)
     }
     val clockStyle = remember(clockFamily, settings.fontWeightShift) { clockTextStyle(clockFamily, settings.fontWeightShift) }
     val shapes = remember(settings.cornerScale, spec.uniformCorner) {
@@ -168,11 +174,33 @@ fun resolveScheme(context: android.content.Context, settings: Settings, dark: Bo
             seedColor = Color(settings.seedColor),
             isDark = dark,
             isAmoled = settings.amoled && dark,
-            style = PaletteStyles.getOrElse(settings.paletteStyle) { PaletteStyle.TonalSpot },
+            style = paletteStyleFor(settings),
             contrastLevel = settings.contrast.toDouble(),
         )
     }
 }
+
+/**
+ * Стиль палитры для своего цвета. TonalSpot и яркие стили задают основному цвету насыщенность ~36 независимо
+ * от выбранного: у тёмных и серых цветов насыщенности почти нет, оттенок у них почти случайный, и чёрный
+ * превращался в фиолетовый, коричневый — в розовый. Такие цвета получают нейтральную палитру, а тёмные
+ * насыщенные — Fidelity, которая сохраняет насыщенность самого цвета.
+ */
+fun paletteStyleFor(settings: Settings): PaletteStyle {
+    val chosen = PaletteStyles.getOrElse(settings.paletteStyle) { PaletteStyle.TonalSpot }
+    if (chosen == PaletteStyle.Neutral || chosen == PaletteStyle.Monochrome) return chosen
+    val seed = com.materialkolor.hct.Hct.fromInt(settings.seedColor)
+    return when {
+        seed.chroma < 8.0 -> PaletteStyle.Monochrome
+        seed.chroma < 18.0 -> PaletteStyle.Neutral
+        chosen == PaletteStyle.TonalSpot && seed.tone < 45.0 -> PaletteStyle.Fidelity
+        else -> chosen
+    }
+}
+
+/** Выбран свой тёмный цвет: тематические значки получают тёмную плашку и в светлой теме, как сам цвет. */
+fun prefersDarkPlates(settings: Settings): Boolean =
+    settings.colorSource == ColorSource.CUSTOM && com.materialkolor.hct.Hct.fromInt(settings.seedColor).tone < 45.0
 
 private fun ColorScheme.amoled(enabled: Boolean): ColorScheme =
     if (!enabled) this else copy(

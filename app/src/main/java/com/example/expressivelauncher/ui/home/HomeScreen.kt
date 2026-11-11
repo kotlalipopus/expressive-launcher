@@ -2,6 +2,8 @@
 
 package com.example.expressivelauncher.ui.home
 
+import com.example.expressivelauncher.ui.theme.accentColors
+import com.example.expressivelauncher.ui.components.accentGlow
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.asComposePath
@@ -129,6 +131,7 @@ import com.example.expressivelauncher.ui.components.AppIconImage
 import com.example.expressivelauncher.ui.components.AppLabel
 import com.example.expressivelauncher.ui.components.FrostedGlass
 import com.example.expressivelauncher.ui.components.GlassPanel
+import com.example.expressivelauncher.ui.components.Backdrop
 import com.example.expressivelauncher.ui.components.glassEdge
 import com.example.expressivelauncher.ui.components.LocalBackdrop
 import com.example.expressivelauncher.ui.components.backdropSource
@@ -182,7 +185,7 @@ fun HomeScreen(vm: LauncherViewModel, actions: HomeActions) {
     val selection = remember { SelectionState() }
     LaunchedEffect(items) { selection.retain(items.mapTo(HashSet()) { it.id }) }
     val geometry = remember { HomeGeometry() }
-    var pressedId by remember { mutableStateOf<String?>(null) }
+    val pressedState = remember { PressedState() }
     val wakeCount = actions.wakeSignal
     val wave = remember { WakeWave() }
     val portal = remember { LaunchPortal(scope) }
@@ -234,7 +237,13 @@ fun HomeScreen(vm: LauncherViewModel, actions: HomeActions) {
     var searchRequest by remember { mutableIntStateOf(0) }
 
     // Стол размывается только под открытой папкой; меню по долгому нажатию открываются без размытия, чтобы не тормозить
-    val overlayTarget = if (openFolderId != null) 1f else 0f
+    val accentBlurAll = themeSpec.accentChrome && settings.blurEverywhere
+    val overlayTarget = when {
+        openFolderId != null -> 1f
+        themeSpec.accentChrome && (showWidgets || showWallpaperSheet) -> 1f
+        accentBlurAll && showHomeMenu != null -> 1f
+        else -> 0f
+    }
     val overlayBlur by animateFloatAsState(overlayTarget, MaterialTheme.motionScheme.defaultEffectsSpec(), label = "overlayBlur")
     val blurOn = settings.blurBackground && settings.blurStrength > 0f
     // Liquid Glass: стол под папкой и меню не размывается — стекло само преломляет то, что под ним, и значки
@@ -307,7 +316,7 @@ fun HomeScreen(vm: LauncherViewModel, actions: HomeActions) {
             source = source,
             from = from,
             look = iconLook(repo.cachedIcon(app), settings, colorScheme, glass = themeSpec.glass),
-            shape = settings.iconShape,
+            shape = com.example.expressivelauncher.data.AppStyles.of(app.key)?.shape ?: settings.iconShape,
             endColor = repo.cachedSplashColor(app)?.let { Color(it) }
                 ?: null.also { scope.launch(Dispatchers.IO) { repo.warmSplashColor(app) } },
             pauses = { actions.pauseCount },
@@ -406,8 +415,11 @@ fun HomeScreen(vm: LauncherViewModel, actions: HomeActions) {
         geometry.items = items
         geometry.settings = settings
         geometry.page = pagerState.currentPage
-        geometry.zones = listOf(DragAction.REMOVE, DragAction.APP_INFO, DragAction.UNINSTALL).mapIndexed { i, a ->
-            a to androidx.compose.ui.geometry.Rect(i * zoneW, topInsetPx, (i + 1) * zoneW, topInsetPx + zoneH)
+        // Список зон не пересоздаётся на каждую композицию: он меняется только с размером экрана или вырезом
+        geometry.zones = remember(maxWidth, zoneW, topInsetPx) {
+            DRAG_ACTIONS.mapIndexed { i, a ->
+                a to androidx.compose.ui.geometry.Rect(i * zoneW, topInsetPx, (i + 1) * zoneW, topInsetPx + zoneH)
+            }
         }
 
         // ---------- Рабочий стол ----------
@@ -451,15 +463,15 @@ fun HomeScreen(vm: LauncherViewModel, actions: HomeActions) {
                         if (drawer.progress > 0.02f || menu != null || openFolderId != null || showHomeMenu != null || showWidgets || showWallpaperSheet || AppCustomize.app != null) {
                             return@awaitEachGesture
                         }
-                        val pressed = geometry.hitTest(down.position)?.takeIf { it.type != ItemType.WIDGET } ?: return@awaitEachGesture
-                        pressedId = pressed.id
+                        val hit = geometry.hitTest(down.position)?.takeIf { it.type != ItemType.WIDGET } ?: return@awaitEachGesture
+                        pressedState.id = hit.id
                         try {
                             while (true) {
                                 val c = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
                                 if (!c.pressed || (c.position - down.position).getDistance() > viewConfiguration.touchSlop) break
                             }
                         } finally {
-                            pressedId = null
+                            pressedState.id = null
                         }
                     }
                 }
@@ -747,8 +759,8 @@ fun HomeScreen(vm: LauncherViewModel, actions: HomeActions) {
                                         item = item, appMap = appMap, vm = vm,
                                         cellW = cellW, cellH = cellH,
                                         hidden = { drag.contains(item.id) },
-                                        selected = selection.contains(item.id),
-                                        pressed = pressedId == item.id,
+                                        selection = selection,
+                                        pressedState = pressedState,
                                         wave = wave,
                                         wakeCount = wakeCount,
                                         drag = drag,
@@ -765,7 +777,7 @@ fun HomeScreen(vm: LauncherViewModel, actions: HomeActions) {
                     Box(Modifier.launchRecede(portal, scaleBy = 0f)) { PageIndicator(pagerState.currentPage, pageCount) }
                 }
                 Box(Modifier.launchDim(portal, blur = inWindowBlur)) {
-                    BottomDeck(items, appMap, geometry, drag, selection, portal, pressedId, wave, onSearch = { openDrawer(search = true) }, onApps = { openDrawer() }, onLaunchApp = { app, rect -> launch(app, rect) })
+                    BottomDeck(items, appMap, geometry, drag, selection, portal, pressedState, wave, onSearch = { openDrawer(search = true) }, onApps = { openDrawer() }, onLaunchApp = { app, rect -> launch(app, rect) })
                 }
                 Spacer(Modifier.height(6.dp))
             }
@@ -862,17 +874,19 @@ fun HomeScreen(vm: LauncherViewModel, actions: HomeActions) {
         }
 
         // ---------- Выбор нескольких значков ----------
-        if (selection.active && !drag.active && menu == null && showHomeMenu == null && openFolderId == null) CompositionLocalProvider(LocalBackdrop provides homeBackdrop) {
-            SelectionBar(
-                count = selection.ids.size,
-                onClear = { selection.clear() },
-                onRemove = { vm.removeItems(selection.ids); selection.clear() },
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .windowInsetsPadding(WindowInsets.systemBars)
-                    .padding(top = 8.dp),
-            )
-        }
+        // Выделение читается внутри панели, а не в теле стола: отметка значка перекомпоновывает только её,
+        // а сами клетки обновляются своими derivedStateOf
+        SelectionBarHost(
+            selection = selection,
+            drag = drag,
+            canShow = menu == null && showHomeMenu == null && openFolderId == null,
+            backdrop = homeBackdrop,
+            onRemove = { ids -> vm.removeItems(ids); selection.clear() },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .padding(top = 8.dp),
+        )
 
         // ---------- Шторка ----------
         // Меню держим в композиции: его первое построение на старте жеста давало заметный рывок.
@@ -917,8 +931,12 @@ fun HomeScreen(vm: LauncherViewModel, actions: HomeActions) {
             snapshotFlow {
                 val s = liveSettings
                 val under = if (glassTheme) drawer.progress else maxOf(drawer.progress, overlayBlur)
+                // Expressive: «Размытие везде» добавляет размытие под меню стола и меню значков;
+                // без него — только под меню приложений, папкой, виджетами и обоями
+                val menus = themeSpec.accentChrome && s.blurEverywhere && showHomeMenu != null
+                val sheets = !glassTheme && (showWidgets || (themeSpec.accentChrome && showWallpaperSheet))
                 if (!s.blurBackground || s.blurStrength <= 0f) 0
-                else if (under > 0.06f || (showWidgets && !glassTheme)) (40f * s.blurStrength).roundToInt() else 0
+                else if (under > 0.06f || sheets || menus) (40f * s.blurStrength).roundToInt() else 0
             }.collect { step ->
                 actions.setBlur(step)
             }
@@ -1002,9 +1020,9 @@ fun HomeScreen(vm: LauncherViewModel, actions: HomeActions) {
         }
 
         // ---------- Назад ----------
-        // derivedStateOf обязателен: прямое чтение прогресса перекомпоновывало весь экран на каждом кадре шторки
-        val drawerOpen by remember { derivedStateOf { drawer.progress > 0f } }
-        BackHandler(enabled = menu != null || drawerMenu != null || showHomeMenu != null || showWidgets || openFolderId != null || drawerOpen || selection.active || pagerState.currentPage != 0) {
+        // Обработчик всегда включён: на самом столе «Назад» ничего не закрывает. Без этого система
+        // завершала активность, и лаунчер на мгновение закрывался (или падал, если он не был домашним)
+        BackHandler {
             when {
                 menu != null -> menu = null
                 drawerMenu != null -> drawerMenu = null
@@ -1014,7 +1032,9 @@ fun HomeScreen(vm: LauncherViewModel, actions: HomeActions) {
                 openFolderId != null -> openFolderId = null
                 drawer.progress > 0f -> drawer.animateTo(0f, spatial)
                 selection.active -> selection.clear()
-                else -> scope.launch { pagerState.animateScrollToPage(0) }
+                pagerState.currentPage != 0 -> scope.launch { pagerState.animateScrollToPage(0) }
+                // Уже на первом экране: остаёмся на столе
+                else -> Unit
             }
         }
 
@@ -1070,8 +1090,8 @@ private fun HomeCell(
     cellW: androidx.compose.ui.unit.Dp,
     cellH: androidx.compose.ui.unit.Dp,
     hidden: () -> Boolean,
-    selected: Boolean,
-    pressed: Boolean,
+    selection: SelectionState,
+    pressedState: PressedState,
     wave: WakeWave,
     wakeCount: Int,
     drag: DragState,
@@ -1080,9 +1100,15 @@ private fun HomeCell(
 ) {
     val settings = LocalSettings.current
     val density = LocalDensity.current
-    val (x, y) = drag.preview[item.id] ?: (item.x to item.y)
+    // Каждое состояние читается только своей клеткой: нажатие, выделение и перетаскивание соседа
+    // не перекомпоновывают страницу целиком
+    val selected by remember(item) { derivedStateOf { selection.contains(item.id) } }
+    val pressed by remember(item) { derivedStateOf { pressedState.id == item.id } }
+    val landing by remember(item.id) { derivedStateOf { drag.landing?.takeIf { it.id == item.id } } }
+    // Позиция меняется, когда соседи расступаются: клетка перерисовывается, только если сдвинулась она сама
+    val slot by remember(item) { derivedStateOf { drag.preview[item.id] ?: (item.x to item.y) } }
+    val (x, y) = slot
     val target = with(density) { Offset((cellW * x).toPx(), (cellH * y).toPx()) }
-    val landing = drag.landing?.takeIf { it.id == item.id }
     val morph by animateFloatAsState(if (pressed) 1f else 0f, MaterialTheme.motionScheme.fastSpatialSpec(), label = "pressMorph")
     val colors = MaterialTheme.colorScheme
     Box(
@@ -1135,7 +1161,7 @@ fun homeIconSize(cellW: androidx.compose.ui.unit.Dp, cellH: androidx.compose.ui.
 
 /** Размер значка в пикселях, как он нарисован: нужен, чтобы анимация запуска стартовала ровно из него. */
 private fun iconPxFor(item: HomeItem, geometry: HomeGeometry, density: androidx.compose.ui.unit.Density, s: com.example.expressivelauncher.data.Settings): Float = with(density) {
-    if (item.inDock) (DOCK_ICON_DP * s.iconScale).dp.toPx()
+    if (item.inDock) dockIconSize(s, if (geometry.dock.width > 0f) geometry.dock.width.toDp() else null).toPx()
     else homeIconSize(geometry.cellW.toDp(), geometry.cellH.toDp(), s.iconScale, s.showHomeLabels).toPx()
 }
 
@@ -1144,6 +1170,22 @@ private fun labelPx(density: androidx.compose.ui.unit.Density, s: com.example.ex
 }
 
 private const val DOCK_ICON_DP = 56
+
+/**
+ * Значок дока: растёт вместе с «Размером значков», но не шире своей ячейки — иначе крупные значки
+ * наезжали друг на друга и вылезали за подложку дока.
+ */
+private fun dockIconSize(s: com.example.expressivelauncher.data.Settings, dockWidth: androidx.compose.ui.unit.Dp?): androidx.compose.ui.unit.Dp {
+    val wanted = DOCK_ICON_DP * s.iconScale
+    val slot = dockWidth?.let { it.value / s.dockCount.coerceAtLeast(1) - 8f } ?: wanted
+    return min(wanted, slot).coerceAtLeast(24f).dp
+}
+
+/** Поля над и под значком внутри дока. */
+private const val DOCK_ICON_PAD_DP = 6f
+
+/** Зоны действий при перетаскивании: слева направо, как они лежат на экране. */
+private val DRAG_ACTIONS = listOf(DragAction.REMOVE, DragAction.APP_INFO, DragAction.UNINSTALL)
 
 /** Сколько уровней размытия стола под меню приложений кэшируется (Liquid Glass). */
 private const val HOME_BLUR_LEVELS = 12
@@ -1247,7 +1289,7 @@ private fun BottomDeck(
     drag: DragState,
     selection: SelectionState,
     portal: LaunchPortal,
-    pressedId: String?,
+    pressedState: PressedState,
     wave: WakeWave,
     onSearch: () -> Unit,
     onApps: () -> Unit,
@@ -1258,23 +1300,32 @@ private fun BottomDeck(
     if (!s.showDock && !s.showSearchPill) return
     val dockItems = remember(items) { items.filter { it.inDock } }
     val shape = RoundedCornerShape(s.dockRadius.dp)
-    val tint = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = s.dockOpacity)
-    val glass = s.dockBackground && s.blurBackground && fx.blur && s.blurStrength > 0f
+    val spec = com.example.expressivelauncher.ui.theme.LocalThemeSpec.current
+    // Expressive: насыщенная панель тёмного фиксированного тона акцента, матовая — только с «Размытием везде»
+    val tint = (if (spec.accentChrome) accentColors().panel else MaterialTheme.colorScheme.surfaceContainerHigh)
+        // Expressive: док насыщенный, почти сплошной — полупрозрачность на обоях делала цвет мутным
+        .copy(alpha = if (spec.accentChrome && !s.blurEverywhere) maxOf(s.dockOpacity, 0.95f) else s.dockOpacity)
+    val glass = s.dockBackground && s.blurBackground && fx.blur && s.blurStrength > 0f && (!spec.accentChrome || s.blurEverywhere)
 
+    // Свой размер значка (настройка приложения) увеличивает его слоем: док выше на самый крупный из них
+    val styleScale = dockItems.maxOfOrNull { it.appKey?.let { k -> com.example.expressivelauncher.data.AppStyles.of(k)?.scale } ?: 1f }
+        ?.coerceAtLeast(1f) ?: 1f
     val dockRow: @Composable (Modifier) -> Unit = { rowModifier ->
-                BoxWithConstraints(
-                    rowModifier.height(s.dockHeight.dp).onGloballyPositioned { geometry.dock = it.boundsInRoot() },
-                ) {
+                BoxWithConstraints(rowModifier) {
                     val slotW = maxWidth / s.dockCount
-                    val dockIcon = (DOCK_ICON_DP * s.iconScale).dp
+                    val dockIcon = dockIconSize(s, maxWidth)
+                    // Ряд дока не ниже значка с полями: при крупных значках док растёт, а не обрезает их
+                    val rowH = maxOf(s.dockHeight.toFloat(), dockIcon.value * styleScale + 2 * DOCK_ICON_PAD_DP).dp
+                    Box(Modifier.fillMaxWidth().height(rowH).onGloballyPositioned { geometry.dock = it.boundsInRoot() }) {
                     val density = LocalDensity.current
                     for (item in dockItems) {
                         key(item.id) {
-                            val pressed = item.id == pressedId
-                            val selected = selection.contains(item.id)
+                            // Состояния читаются только своей ячейкой дока: нажатие одной не перекомпоновывает остальные
+                            val pressed by remember(item.id) { derivedStateOf { pressedState.id == item.id } }
+                            val selected by remember(item.id) { derivedStateOf { selection.contains(item.id) } }
+                            val landing by remember(item.id) { derivedStateOf { drag.landing?.takeIf { it.id == item.id } } }
+                            val slot by remember(item) { derivedStateOf { drag.preview[item.id]?.first ?: item.x } }
                             val morph by animateFloatAsState(if (pressed) 1f else 0f, MaterialTheme.motionScheme.fastSpatialSpec(), label = "pressMorph")
-                            val slot = drag.preview[item.id]?.first ?: item.x
-                            val landing = drag.landing?.takeIf { it.id == item.id }
                             Box(
                                 Modifier
                                     .animatedCell(with(density) { Offset((slotW * slot).toPx(), 0f) }, landing?.let { l ->
@@ -1284,7 +1335,7 @@ private fun BottomDeck(
                                             }
                                         }
                                     }, landing)
-                                    .size(slotW, s.dockHeight.dp)
+                                    .size(slotW, rowH)
                                     .then(
                                         if (selected) Modifier
                                             .clip(RoundedCornerShape(24.dp))
@@ -1312,6 +1363,7 @@ private fun BottomDeck(
                             }
                         }
                     }
+                    }
                 }
     }
     val searchBar: @Composable (Modifier) -> Unit = { barModifier ->
@@ -1332,6 +1384,7 @@ private fun BottomDeck(
     }
 
     val deckModifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp).fillMaxWidth()
+        .then(if (s.dockBackground) Modifier.accentGlow(shape, 0.45f) else Modifier)
     if (glass) {
         FrostedGlass(shape, tint, (28f * s.blurStrength).dp, deckModifier) { content() }
     } else {
@@ -1350,17 +1403,26 @@ private fun BottomDeck(
 private fun PageIndicator(current: Int, count: Int) {
     val s = LocalSettings.current
     val fx = LocalFx.current
-    val glass = s.blurBackground && fx.blur && s.blurStrength > 0f
+    val spec = com.example.expressivelauncher.ui.theme.LocalThemeSpec.current
+    val glass = s.blurBackground && fx.blur && s.blurStrength > 0f && !spec.accentChrome
     val tint = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.72f)
+    // Expressive: точки прямо на обоях, тоном акцента, контрастным к обоям (тёмный тон на светлых, светлый на тёмных)
+    val lightWall = com.example.expressivelauncher.ui.LocalWallpaperLight.current
+    val cs = MaterialTheme.colorScheme
+    val accentOn = com.example.expressivelauncher.ui.theme.accentInk(lightWall)
     val dots: @Composable () -> Unit = {
         repeat(count) { i ->
             val selected = i == current
             val w by animateFloatAsState(
-                if (selected) 26f else 8f,
+                if (selected) 24f else 8f,
                 MaterialTheme.motionScheme.defaultSpatialSpec(), label = "dot",
             )
             val dot by animateColorAsState(
-                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                when {
+                    spec.accentChrome -> if (selected) accentOn else accentOn.copy(alpha = 0.45f)
+                    selected -> cs.primary
+                    else -> cs.onSurfaceVariant.copy(alpha = 0.5f)
+                },
                 MaterialTheme.motionScheme.fastEffectsSpec(), label = "dotColor",
             )
             Box(Modifier.padding(horizontal = 3.dp).size(w.dp, 8.dp).clip(CircleShape).background(dot))
@@ -1380,12 +1442,36 @@ private fun PageIndicator(current: Int, count: Int) {
             }
         } else {
             // Lite: просто точки на обоях, без подложки — как на стоковом Pixel
-            val lite = com.example.expressivelauncher.ui.theme.LocalThemeSpec.current.lite
+            val lite = spec.lite || spec.accentChrome
             Row(
                 (if (lite) Modifier else Modifier.clip(CircleShape).background(tint)).padding(horizontal = 6.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) { dots() }
         }
+    }
+}
+
+/**
+ * Панель выбранных значков. Читает [SelectionState] и [DragState] сама: изменение выделения не заставляет
+ * перекомпоновываться весь рабочий стол, только эту панель.
+ */
+@Composable
+private fun SelectionBarHost(
+    selection: SelectionState,
+    drag: DragState,
+    canShow: Boolean,
+    backdrop: Backdrop?,
+    onRemove: (Set<String>) -> Unit,
+    modifier: Modifier,
+) {
+    if (!canShow || drag.active || !selection.active) return
+    CompositionLocalProvider(LocalBackdrop provides backdrop) {
+        SelectionBar(
+            count = selection.ids.size,
+            onClear = { selection.clear() },
+            onRemove = { onRemove(selection.ids) },
+            modifier = modifier,
+        )
     }
 }
 

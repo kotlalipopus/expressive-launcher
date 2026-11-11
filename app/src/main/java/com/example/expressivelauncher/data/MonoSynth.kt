@@ -35,8 +35,9 @@ object MonoSynth {
     }
 
     /**
-     * Системный монохромный слой, залитый почти на весь значок (рисунок вырезан в заливке), на плашке
-     * выглядит как сплошное светлое пятно. Такой слой переворачиваем: рисунок становится линиями, как у остальных.
+     * Свой тематический (монохромный) слой приложения показывается как есть, даже залитый: так его задумал автор.
+     * Раньше залитый слой переворачивался, и значок выглядел не так, как в стоковом лаунчере. Чистится только
+     * «длинная тень» шаблонной иконки Android Studio.
      */
     fun fixSystem(mono: Bitmap): Bitmap {
         val s = mono.width
@@ -46,23 +47,7 @@ object MonoSynth {
         mono.copyPixelsToBuffer(java.nio.ByteBuffer.wrap(raw))
         val a = ByteArray(s * s)
         for (y in 0 until s) System.arraycopy(raw, y * stride, a, y * s, s)
-        val c = s / 2f
-        val r2 = (s * 0.4f) * (s * 0.4f)
-        var inside = 0; var filled = 0
-        for (y in 0 until s) for (x in 0 until s) {
-            val dx = x - c; val dy = y - c
-            if (dx * dx + dy * dy > r2) continue
-            inside++
-            if ((a[y * s + x].toInt() and 0xFF) > 128) filled++
-        }
-        if (inside == 0 || filled < inside * 0.62f) return cutShadow(mono, a, s)
-        val out = IntArray(s * s)
-        for (y in 0 until s) for (x in 0 until s) {
-            val dx = x - c; val dy = y - c
-            val v = if (dx * dx + dy * dy > r2) 0 else 255 - (a[y * s + x].toInt() and 0xFF)
-            out[y * s + x] = v shl 24
-        }
-        return normalize(out, s) ?: mono
+        return cutShadow(mono, a, s)
     }
 
     /**
